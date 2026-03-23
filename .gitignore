@@ -1,0 +1,20 @@
+# GateHunter - Arquivos ignorados
+__pycache__/
+*.pyc
+*.pyo
+*.log
+*.txt.bak
+
+# Output files (gerados pelo scan)
+gatehunter_*_*.txt
+gatehunter_*_*.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

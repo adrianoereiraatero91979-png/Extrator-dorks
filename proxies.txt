@@ -1,0 +1,27 @@
+# ============================================================
+# PROXIES POOL - ALLBINS V10.9 NETHUNTER EDITION
+# ============================================================
+# Formato suportado: ip:porta:usuario:senha
+# Coloque este arquivo em: /sdcard/nh_files/proxies.txt
+#
+# Cada gateway = IP de saída diferente para o servidor
+# Quanto mais gateways, menos chance de 429!
+#
+# Para gerar: use o Multiplicador de IP do seu provedor
+# e selecione cada servidor alternativo.
+# ============================================================
+
+# Gateway 1 - Recomendado (IP direto)
+74.81.81.81:823:be2c872545392337df6e__cr.br:768df629c0304df6
+
+# Gateway 2 - Via DNS
+proxy.marketbet.com.br:823:be2c872545392337df6e__cr.br:768df629c0304df6
+
+# Gateway 3 - Alternativo 1
+5.161.202.98:823:be2c872545392337df6e__cr.br:768df629c0304df6
+
+# Gateway 4 - Alternativo 2
+67.213.114.47:823:be2c872545392337df6e__cr.br:768df629c0304df6
+
+# Gateway 5 - Alternativo 3
+67.213.114.41:823:be2c872545392337df6e__cr.br:768df629c0304df6
