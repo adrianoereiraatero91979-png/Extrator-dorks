@@ -1,6 +1,6 @@
 #!/bin/bash
 # ══════════════════════════════════════════════════════════════════
-#  GATEHUNTER v4.0 - INSTALADOR NETHUNTER SUPREME EDITION
+#  GATEHUNTER v5.0 - INSTALADOR NETHUNTER SUPREME EDITION
 # ══════════════════════════════════════════════════════════════════
 
 RED='\033[1;31m'
@@ -14,7 +14,7 @@ RESET='\033[0m'
 
 echo ""
 echo -e "${MAGENTA}══════════════════════════════════════════════════════════════${RESET}"
-echo -e "${CYAN}  GATEHUNTER v4.0 - INSTALADOR NETHUNTER SUPREME EDITION${RESET}"
+echo -e "${CYAN}  GATEHUNTER v5.0 - INSTALADOR NETHUNTER SUPREME EDITION${RESET}"
 echo -e "${MAGENTA}══════════════════════════════════════════════════════════════${RESET}"
 echo ""
 
@@ -88,16 +88,21 @@ print(f'  [+] Python: {sys.version.split()[0]}')
 
 echo ""
 echo -e "${GREEN}══════════════════════════════════════════════════════════════${RESET}"
-echo -e "${GREEN}  INSTALACAO CONCLUIDA! GateHunter v4.0${RESET}"
+echo -e "${GREEN}  INSTALACAO CONCLUIDA! GateHunter v5.0${RESET}"
 echo -e "${GREEN}══════════════════════════════════════════════════════════════${RESET}"
 echo ""
-echo -e "${WHITE}  Novidades v4.0:${RESET}"
-echo -e "${CYAN}    [+] Validacao em 3 Camadas (URL + Gateway + Store)${RESET}"
-echo -e "${CYAN}    [+] Blacklist massiva (200+ dominios)${RESET}"
-echo -e "${CYAN}    [+] Dorks focadas em assinaturas JS tecnicas${RESET}"
-echo -e "${CYAN}    [+] Store Score com sinais positivos e negativos${RESET}"
-echo -e "${CYAN}    [+] Debug Log completo em /sdcard/nh_files/logs_gate_hunter.txt${RESET}"
-echo -e "${CYAN}    [+] Deteccao de gateway via zonas tecnicas${RESET}"
+echo -e "${WHITE}  Novidades v5.0:${RESET}"
+echo -e "${CYAN}    [+] Multi-Engine: DDG HTML + Google.com.br + Bing + CSE API${RESET}"
+echo -e "${CYAN}    [+] Busca SEM proxy (IP direto = menos bloqueios)${RESET}"
+echo -e "${CYAN}    [+] Dorks simples e abrangentes (mais resultados)${RESET}"
+echo -e "${CYAN}    [+] Blacklist 152+ dominios${RESET}"
+echo -e "${CYAN}    [+] Store Score com 27 sinais de validacao${RESET}"
+echo -e "${CYAN}    [+] Gateway Confirm em 7 zonas tecnicas${RESET}"
+echo -e "${CYAN}    [+] Debug Log em /sdcard/nh_files/logs_gate_hunter.txt${RESET}"
+echo ""
+echo -e "${WHITE}  Google CSE API (opcional - 100 buscas/dia gratis):${RESET}"
+echo -e "${CYAN}    export GOOGLE_CSE_API_KEY=\"sua_chave\"${RESET}"
+echo -e "${CYAN}    export GOOGLE_CSE_CX=\"seu_cx\"${RESET}"
 echo ""
 echo -e "${WHITE}  Para executar:${RESET}"
 echo -e "${CYAN}    python3 gatehunter.py${RESET}"
