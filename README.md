@@ -1,4 +1,4 @@
-# GateHunter v6.0.0 - NetHunter Supreme Edition
+# GateHunter v6.1.0 - NetHunter Supreme Edition
 
 ```
    ██████╗  █████╗ ████████╗███████╗
@@ -30,8 +30,8 @@
 | **Filtro por Nicho** | Buscar lojas de um tipo especifico (ex: "roupas + PagarMe") |
 | **curl_cffi** | TLS Fingerprint identico a Chrome/Safari/Edge real |
 | **Proxy Pool** | Rotacao automatica para analise de sites |
-| **Validacao 3 Camadas** | URL Filter + Store Score + Gateway Confirm |
-| **Blacklist 96+** | Dominios de blogs, docs, suporte, redes sociais bloqueados |
+| **Validacao 4 Camadas** | URL Filter + Store Score + Gateway Confirm + Ambiguous Check |
+| **Blacklist 158+** | Dominios de blogs, docs, suporte, redes sociais bloqueados |
 | **Store Score** | 27 sinais (16 positivos + 11 negativos) |
 | **Gateway Confirm** | 5 zonas de deteccao (JS_SRC, IFRAME, FORM, LINK, TEXT) |
 | **Classificacao** | Detecta nicho e plataforma (WooCommerce, Shopify, VTEX...) |
@@ -40,7 +40,15 @@
 
 ---
 
-## Novidade v6.0: Filtro por Nicho
+## Novidade v6.1: Ambiguous Gateway Detection + Engine Rotation
+
+Gateways com nomes ambiguos (Cielo, Stripe, Vindi, Iugu, Getnet) agora exigem **evidencia tecnica forte** (script JS, iframe, form action apontando para o dominio da gateway). Isso elimina falsos positivos onde o nome aparece como marca/produto.
+
+Alem disso, cada dork agora e enviada para uma engine diferente (Brave -> DDG -> Bing -> Brave) para maximizar resultados e evitar rate limit.
+
+---
+
+## Filtro por Nicho
 
 Agora voce pode buscar lojas de um tipo especifico! Exemplos:
 
@@ -185,4 +193,4 @@ Ferramenta destinada **exclusivamente para fins educacionais e pesquisa autoriza
 
 ---
 
-**GateHunter v6.0.0** - NetHunter Supreme Edition | [CHANGELOG](CHANGELOG.md)
+**GateHunter v6.1.0** - NetHunter Supreme Edition | [CHANGELOG](CHANGELOG.md)

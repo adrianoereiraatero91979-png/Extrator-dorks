@@ -2,10 +2,10 @@
 # -*- coding: utf-8 -*-
 """
 ╔══════════════════════════════════════════════════════════════╗
-║  GATEHUNTER v6.0.0 - NETHUNTER SUPREME EDITION              ║
+║  GATEHUNTER v6.1.0 - NETHUNTER SUPREME EDITION              ║
 ║  Payment Gateway OSINT - Multi-Engine Dork Scanner           ║
-║  Brave Search + DDG + Bing + Google CSE API                  ║
-║  3-Layer Validation + Niche Filter + Debug Logging           ║
+║  Brave + DDG + Bing + Google CSE API                         ║
+║  4-Layer Validation + Ambiguous Gateway + Niche Filter       ║
 ╚══════════════════════════════════════════════════════════════╝
 """
 
@@ -15,16 +15,16 @@ import re
 import json
 import time
 import random
-import hashlib
 import urllib.request
 import urllib.parse
+import urllib.error
 import traceback
 import threading
 from datetime import datetime
 from typing import Dict, List, Optional, Set, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-VERSION = "6.0.0"
+VERSION = "6.1.0"
 
 # ══════════════════════════════════════════════════════════════════
 #                     CONFIGURACAO
@@ -37,9 +37,9 @@ PROXY_FILE_PATHS = ["/sdcard/nh_files/proxies.txt", "proxies.txt"]
 
 MAX_THREADS = 15
 REQUEST_TIMEOUT = 20
-STORE_SCORE_THRESHOLD = 8
-SEARCH_DELAY_MIN = 4
-SEARCH_DELAY_MAX = 8
+STORE_SCORE_THRESHOLD = 12
+SEARCH_DELAY_MIN = 5
+SEARCH_DELAY_MAX = 10
 
 # Google Custom Search Engine (opcional - 100 buscas/dia gratis)
 GOOGLE_CSE_API_KEY = os.environ.get("GOOGLE_CSE_API_KEY", "")
@@ -57,16 +57,9 @@ except ImportError:
 #                       CORES ANSI
 # ══════════════════════════════════════════════════════════════════
 
-R = "\033[91m"    # Red
-G = "\033[92m"    # Green
-Y = "\033[93m"    # Yellow
-B = "\033[94m"    # Blue
-M = "\033[95m"    # Magenta
-C = "\033[96m"    # Cyan
-W = "\033[97m"    # White
-D = "\033[90m"    # Dark/Gray
-RST = "\033[0m"   # Reset
-BOLD = "\033[1m"
+R = "\033[91m"; G = "\033[92m"; Y = "\033[93m"; B = "\033[94m"
+M = "\033[95m"; C = "\033[96m"; W = "\033[97m"; D = "\033[90m"
+RST = "\033[0m"; BOLD = "\033[1m"
 
 # ══════════════════════════════════════════════════════════════════
 #                    USER AGENTS PREMIUM
@@ -108,287 +101,332 @@ NICHOS = {
 #                    GATEWAYS DE PAGAMENTO
 # ══════════════════════════════════════════════════════════════════
 
+# Gateways com nomes ambíguos que podem ser confundidos com
+# nomes de produtos, marcas ou palavras comuns.
+# Para essas, exigimos evidência TÉCNICA forte (JS_SRC, IFRAME, FORM action
+# apontando para domínio da gateway). TEXT_CONTEXT e LINK genérico NÃO confirmam.
+AMBIGUOUS_GATEWAYS = {"Cielo", "Stripe", "Vindi", "Iugu", "Getnet"}
+
 GATEWAYS = {
     "Asaas": {
         "desc": "Asaas - Plataforma de cobrancas e pagamentos",
-        "signatures": ["asaas.com", "asaas", "api.asaas", "cdn.asaas"],
+        "signatures": ["asaas.com", "api.asaas", "cdn.asaas", "checkout.asaas"],
+        "js_domains": ["asaas.com"],
         "dorks": [
-            '"asaas" formas de pagamento loja',
-            '"asaas.com" pagamento loja online',
-            '"asaas" checkout comprar produto',
-            '"asaas" loja virtual pagamento',
+            '"checkout asaas" comprar',
+            '"asaas.com" formas de pagamento',
             '"asaas" pix boleto cartao loja',
-            '"asaas" ecommerce pagamento',
-            'pagamento asaas loja comprar',
+            '"asaas" loja virtual pagamento',
             '"asaas" carrinho finalizar compra',
-            'formas pagamento asaas produto',
-            '"asaas" pagar pedido loja',
-            '"asaas" loja online frete',
-            '"asaas" pagamento seguro comprar',
-            'aceita asaas loja virtual',
-            '"asaas" cobranca loja produto',
-            '"asaas" pagamento recorrente assinatura',
+            'site:.com.br "asaas" comprar produto',
+            '"asaas" ecommerce loja online',
+            '"asaas" pagamento seguro loja',
+            '"asaas" parcelamento produto',
+            '"asaas" cobranca loja online',
+            '"powered by asaas"',
+            '"asaas" frete entrega loja',
         ],
     },
     "PagarMe": {
         "desc": "Pagar.me (Stone) - Gateway de pagamentos",
         "signatures": ["pagar.me", "pagarme", "api.pagar.me", "checkout.pagar.me"],
+        "js_domains": ["pagar.me"],
         "dorks": [
+            '"checkout.pagar.me"',
             '"pagar.me" formas de pagamento loja',
             '"pagar.me" loja online comprar',
-            '"pagar.me" checkout pagamento',
-            '"checkout.pagar.me" comprar',
-            '"pagar.me" carrinho produto comprar',
-            '"pagar.me" loja virtual ecommerce',
-            '"pagar.me" pix boleto cartao loja',
-            'pagamento pagar.me loja online',
-            '"pagar.me" finalizar compra pedido',
+            '"api.pagar.me" checkout',
+            '"pagar.me" carrinho produto',
+            'site:.com.br "pagar.me" comprar',
+            '"pagar.me" pix boleto cartao',
+            '"pagarme" loja virtual ecommerce',
             '"pagar.me" frete entrega produto',
-            '"pagarme" loja comprar produto',
-            '"pagar.me" pagamento seguro loja',
-            'formas pagamento pagarme loja virtual',
-            '"pagar.me" parcelamento comprar',
-            '"pagar.me" loja roupas comprar',
+            '"pagar.me" parcelamento loja',
+            '"powered by pagar.me"',
+            '"pagar.me" pagamento seguro',
         ],
     },
     "eRede": {
         "desc": "eRede (Itau) - Adquirente e gateway",
-        "signatures": ["userede.com.br", "e.rede.com.br", "erede", "userede"],
+        "signatures": ["userede.com.br", "e.rede.com.br", "erede"],
+        "js_domains": ["userede.com.br", "e.rede.com.br"],
         "dorks": [
+            '"userede.com.br" loja comprar',
+            '"e.rede" checkout pagamento',
             '"erede" formas de pagamento loja',
-            '"userede" pagamento loja online',
-            '"e.rede" checkout comprar',
-            '"erede" loja virtual pagamento cartao',
+            'site:.com.br "erede" loja online',
+            '"erede" pix cartao boleto loja',
             '"userede" ecommerce pagamento',
-            'pagamento erede loja comprar',
-            '"erede" pix cartao loja online',
-            '"userede" carrinho comprar produto',
+            '"erede" carrinho comprar produto',
             '"erede" pagamento seguro loja',
-            'formas pagamento erede loja virtual',
+            '"erede" parcelamento loja online',
+            '"erede" loja virtual checkout',
         ],
     },
     "PayFlow": {
         "desc": "PayFlow - Gateway de pagamentos digital",
         "signatures": ["payflow.com.br", "payflow", "api.payflow"],
+        "js_domains": ["payflow.com.br"],
         "dorks": [
             '"payflow" formas de pagamento loja',
-            '"payflow" pagamento loja online',
-            '"payflow" checkout comprar produto',
-            '"payflow" loja virtual ecommerce',
+            '"payflow.com.br" checkout comprar',
+            '"payflow" loja online pagamento',
+            'site:.com.br "payflow" comprar',
             '"payflow" pix boleto cartao loja',
-            'pagamento payflow loja comprar',
             '"payflow" carrinho finalizar compra',
-            '"payflow" pagamento seguro loja',
+            '"payflow" ecommerce loja virtual',
+            '"payflow" pagamento seguro',
         ],
     },
     "AppMax": {
         "desc": "AppMax - Plataforma de vendas e pagamentos",
         "signatures": ["appmax.com.br", "appmax", "api.appmax"],
+        "js_domains": ["appmax.com.br"],
         "dorks": [
             '"appmax" formas de pagamento loja',
-            '"appmax" pagamento loja online',
-            '"appmax" checkout comprar produto',
-            '"appmax" loja virtual ecommerce',
+            '"appmax.com.br" checkout comprar',
+            '"appmax" loja online pagamento',
+            'site:.com.br "appmax" comprar',
             '"appmax" pix boleto cartao loja',
-            'pagamento appmax loja comprar',
             '"appmax" carrinho finalizar compra',
-            '"appmax" pagamento seguro loja',
+            '"appmax" ecommerce loja virtual',
+            '"appmax" pagamento seguro',
         ],
     },
     "MercadoPago": {
         "desc": "Mercado Pago - Gateway e carteira digital",
-        "signatures": ["mercadopago.com", "mercadopago", "mp.com", "mercadolivre"],
+        "signatures": ["mercadopago.com", "mercadopago", "checkout.mercadopago"],
+        "js_domains": ["mercadopago.com"],
         "dorks": [
             '"mercado pago" formas de pagamento loja',
             '"mercadopago" checkout comprar',
             '"mercado pago" loja online pagamento',
-            '"mercado pago" carrinho comprar produto',
-            '"mercadopago" loja virtual ecommerce',
+            'site:.com.br "mercado pago" comprar produto',
             '"mercado pago" pix boleto cartao loja',
-            'pagamento mercado pago loja comprar',
+            '"mercado pago" carrinho comprar',
+            '"mercadopago" loja virtual ecommerce',
             '"mercado pago" parcelamento loja',
             '"mercado pago" frete entrega comprar',
-            '"mercado pago" pagamento seguro loja',
+            '"sdk.mercadopago"',
+            '"mercado pago" pagamento seguro',
+            '"mercado pago" loja roupas comprar',
         ],
     },
     "PagSeguro": {
         "desc": "PagSeguro/PagBank - Gateway de pagamentos",
-        "signatures": ["pagseguro.uol.com.br", "pagseguro", "pagbank", "pagseguro.com"],
+        "signatures": ["pagseguro.uol.com.br", "pagseguro", "pagbank"],
+        "js_domains": ["pagseguro.uol.com.br", "pagseguro.com"],
         "dorks": [
             '"pagseguro" formas de pagamento loja',
             '"pagseguro" loja online comprar',
             '"pagseguro" checkout pagamento',
             '"pagbank" loja virtual comprar',
-            '"pagseguro" carrinho produto comprar',
+            'site:.com.br "pagseguro" comprar produto',
             '"pagseguro" pix boleto cartao loja',
-            'pagamento pagseguro loja online',
-            '"pagseguro" parcelamento comprar',
-            '"pagseguro" pagamento seguro loja',
-            '"pagbank" ecommerce pagamento loja',
+            '"pagseguro" carrinho comprar',
+            '"pagseguro" parcelamento loja',
+            '"pagseguro" pagamento seguro',
+            '"stc.pagseguro"',
+            '"pagbank" ecommerce pagamento',
+            '"pagseguro" frete entrega loja',
         ],
     },
     "Cielo": {
         "desc": "Cielo - Maior adquirente do Brasil",
-        "signatures": ["cielo.com.br", "cieloecommerce", "cielo", "api.cielo"],
+        "signatures": ["cielo.com.br", "cieloecommerce", "api.cielo", "checkout.cielo"],
+        "js_domains": ["cielo.com.br", "cieloecommerce.cielo.com.br"],
         "dorks": [
-            '"cielo" formas de pagamento loja',
-            '"cielo" loja online comprar',
-            '"cielo" checkout pagamento',
-            '"cielo" loja virtual ecommerce',
-            '"cielo" carrinho produto comprar',
-            '"cielo" pix boleto cartao loja',
-            'pagamento cielo loja online',
-            '"cielo" parcelamento comprar',
-            '"cielo" pagamento seguro loja',
-            '"cielo" ecommerce pagamento loja',
+            '"cieloecommerce" checkout loja',
+            '"api.cielo.com.br" pagamento',
+            '"checkout.cielo" loja comprar',
+            'site:.com.br "cielo ecommerce" loja',
+            '"cielo" formas de pagamento loja online',
+            '"cielo" adquirente pagamento loja',
+            '"cielo" maquininha loja virtual',
+            '"cielo 3.0" pagamento loja',
+            '"cielo" pix boleto cartao loja online',
+            '"cielo" parcelamento loja comprar',
+            '"powered by cielo"',
+            '"cielo" checkout seguro loja',
         ],
     },
     "Stripe": {
         "desc": "Stripe - Gateway global de pagamentos",
-        "signatures": ["stripe.com", "js.stripe.com", "stripe", "checkout.stripe"],
+        "signatures": ["stripe.com", "js.stripe.com", "checkout.stripe"],
+        "js_domains": ["stripe.com", "js.stripe.com"],
         "dorks": [
-            '"stripe" formas de pagamento loja brasil',
-            '"stripe" loja online comprar brasil',
-            '"stripe" checkout pagamento loja',
             '"js.stripe.com" loja comprar',
+            '"checkout.stripe.com" comprar',
+            '"stripe" formas de pagamento loja brasil',
+            'site:.com.br "stripe" loja online comprar',
             '"stripe" ecommerce pagamento brasil',
-            'pagamento stripe loja online brasil',
             '"stripe" carrinho comprar produto',
             '"stripe" pagamento seguro loja',
+            '"stripe elements" pagamento loja',
+            '"pk_live_" stripe loja',
+            '"stripe" checkout loja brasil',
         ],
     },
     "Hotmart": {
         "desc": "Hotmart - Plataforma de produtos digitais",
         "signatures": ["hotmart.com", "pay.hotmart", "hotmart"],
+        "js_domains": ["hotmart.com"],
         "dorks": [
+            '"pay.hotmart" comprar',
             '"hotmart" comprar curso online',
-            '"pay.hotmart" checkout comprar',
             '"hotmart" pagamento produto digital',
-            '"hotmart" curso comprar agora',
+            '"hotmart" checkout comprar agora',
             '"hotmart" ebook comprar',
             '"hotmart" mentoria comprar',
-            'comprar hotmart produto digital',
             '"hotmart" pagamento pix boleto',
+            '"hotmart" curso online matricula',
         ],
     },
     "Eduzz": {
         "desc": "Eduzz - Plataforma de infoprodutos",
         "signatures": ["eduzz.com", "eduzz", "sun.eduzz"],
+        "js_domains": ["eduzz.com"],
         "dorks": [
+            '"sun.eduzz" comprar',
             '"eduzz" comprar curso online',
             '"eduzz" pagamento produto digital',
             '"eduzz" checkout comprar',
-            '"eduzz" curso comprar agora',
             '"eduzz" ebook comprar',
-            'comprar eduzz produto digital',
             '"eduzz" pagamento pix boleto',
-            '"sun.eduzz" comprar',
+            '"eduzz" curso online matricula',
+            '"eduzz" mentoria comprar agora',
         ],
     },
     "Kiwify": {
         "desc": "Kiwify - Plataforma de vendas digitais",
         "signatures": ["kiwify.com.br", "kiwify", "pay.kiwify"],
+        "js_domains": ["kiwify.com.br"],
         "dorks": [
+            '"pay.kiwify" comprar',
             '"kiwify" comprar curso online',
             '"kiwify" pagamento produto digital',
             '"kiwify" checkout comprar',
-            '"pay.kiwify" comprar',
-            '"kiwify" curso comprar agora',
-            'comprar kiwify produto digital',
+            '"kiwify" ebook comprar',
             '"kiwify" pagamento pix boleto',
-            '"kiwify" ebook mentoria comprar',
+            '"kiwify" curso online matricula',
+            '"kiwify" mentoria comprar agora',
         ],
     },
     "Vindi": {
         "desc": "Vindi - Plataforma de pagamentos recorrentes",
-        "signatures": ["vindi.com.br", "vindi", "api.vindi", "app.vindi"],
+        "signatures": ["vindi.com.br", "api.vindi", "app.vindi"],
+        "js_domains": ["vindi.com.br"],
         "dorks": [
-            '"vindi" formas de pagamento loja',
-            '"vindi" pagamento recorrente assinatura',
-            '"vindi" checkout comprar',
-            '"vindi" loja online pagamento',
+            '"app.vindi" assinatura',
+            '"vindi" pagamento recorrente loja',
             '"vindi" assinatura plano mensal',
-            'pagamento vindi loja comprar',
+            'site:.com.br "vindi" pagamento loja',
+            '"vindi" checkout comprar',
             '"vindi" cobranca recorrente loja',
-            '"vindi" pagamento seguro loja',
+            '"vindi" formas de pagamento',
+            '"api.vindi" pagamento',
         ],
     },
     "Iugu": {
         "desc": "Iugu - Gateway e plataforma financeira",
-        "signatures": ["iugu.com", "iugu", "api.iugu", "faturas.iugu"],
+        "signatures": ["iugu.com", "api.iugu", "faturas.iugu"],
+        "js_domains": ["iugu.com"],
         "dorks": [
+            '"faturas.iugu" pagamento',
             '"iugu" formas de pagamento loja',
-            '"iugu" pagamento loja online',
-            '"iugu" checkout comprar',
-            '"iugu" loja virtual ecommerce',
+            '"api.iugu" checkout',
+            'site:.com.br "iugu" pagamento loja',
             '"iugu" pix boleto cartao loja',
-            'pagamento iugu loja comprar',
             '"iugu" cobranca loja online',
             '"iugu" pagamento seguro loja',
+            '"iugu" assinatura plano',
         ],
     },
     "Getnet": {
         "desc": "Getnet (Santander) - Adquirente e gateway",
-        "signatures": ["getnet.com.br", "getnet", "api.getnet"],
+        "signatures": ["getnet.com.br", "api.getnet", "checkout.getnet"],
+        "js_domains": ["getnet.com.br"],
         "dorks": [
+            '"api.getnet" pagamento loja',
+            '"checkout.getnet" comprar',
             '"getnet" formas de pagamento loja',
-            '"getnet" pagamento loja online',
-            '"getnet" checkout comprar',
-            '"getnet" loja virtual ecommerce',
-            '"getnet" pix cartao loja',
-            'pagamento getnet loja comprar',
-            '"getnet" pagamento seguro loja',
+            'site:.com.br "getnet" loja online',
+            '"getnet" pix cartao boleto loja',
             '"getnet" ecommerce pagamento',
+            '"getnet" pagamento seguro loja',
+            '"getnet" adquirente loja virtual',
         ],
     },
 }
 
 # ══════════════════════════════════════════════════════════════════
-#                    DOMAIN BLACKLIST
+#                    DOMAIN BLACKLIST (MEGA)
 # ══════════════════════════════════════════════════════════════════
 
 DOMAIN_BLACKLIST = {
-    # Proprias gateways
+    # ── Proprias gateways ──
     "asaas.com", "pagar.me", "pagarme.com.br", "userede.com.br", "rede.com.br",
     "payflow.com.br", "appmax.com.br", "mercadopago.com", "mercadopago.com.br",
     "pagseguro.uol.com.br", "pagseguro.com", "pagbank.com.br", "cielo.com.br",
     "stripe.com", "hotmart.com", "eduzz.com", "kiwify.com.br", "vindi.com.br",
     "iugu.com", "getnet.com.br", "stone.com.br", "mundipagg.com",
-    # Plataformas e-commerce (docs/ajuda)
+    # ── Plataformas e-commerce (docs/ajuda) ──
     "nuvemshop.com.br", "tray.com.br", "lojaintegrada.com.br", "vtex.com",
     "shopify.com", "woocommerce.com", "magento.com", "yampi.com.br",
     "cartpanda.com", "wbuy.com.br", "toplojas.com.br", "bwcommerce.com.br",
     "moblix.com.br", "bagy.com.br", "loja.com.br",
-    # Redes sociais e conteudo
+    # ── Redes sociais e conteudo ──
     "youtube.com", "facebook.com", "instagram.com", "twitter.com", "x.com",
-    "linkedin.com", "tiktok.com", "pinterest.com", "reddit.com",
-    # Repositorios e dev
-    "github.com", "gitlab.com", "bitbucket.org", "stackoverflow.com",
-    "npmjs.com", "packagist.org", "pypi.org", "codesandbox.io",
-    # Blogs e noticias
+    "linkedin.com", "tiktok.com", "pinterest.com", "reddit.com", "threads.net",
+    # ── Repositorios e dev ──
+    "github.com", "github.io", "gitlab.com", "bitbucket.org", "stackoverflow.com",
+    "npmjs.com", "packagist.org", "pypi.org", "codesandbox.io", "codepen.io",
+    # ── Blogs e noticias ──
     "medium.com", "wordpress.com", "blogspot.com", "tumblr.com",
     "enotas.com.br", "digitalmanager.guru", "resultadosdigitais.com.br",
     "rockcontent.com", "neilpatel.com", "hubspot.com", "digitei.com",
-    # Comparadores e reviews
+    "ecommercebrasil.com.br", "mundodomarketing.com.br", "canaltech.com.br",
+    "techtudo.com.br", "tecnoblog.net", "olhardigital.com.br",
+    # ── Comparadores, reviews, cupons ──
     "reclameaqui.com.br", "trustpilot.com", "g2.com", "capterra.com",
-    "b2bstack.com.br", "comparatec.com.br",
-    # Educacao e docs
-    "wikipedia.org", "wikimedia.org", "docs.google.com", "drive.google.com",
-    # Governo e institucional
-    "gov.br", "bcb.gov.br", "receita.fazenda.gov.br",
-    # Outros
+    "b2bstack.com.br", "comparatec.com.br", "desconto.com.br", "cupom.com",
+    "meliuz.com.br", "pelando.com.br", "promobit.com.br", "cuponation.com.br",
+    # ── Educacao e docs ──
+    "wikipedia.org", "wikimedia.org", "wikidata.org", "docs.google.com",
+    "drive.google.com", "slideshare.net", "scribd.com",
+    # ── Governo e institucional ──
+    "gov.br", "bcb.gov.br", "receita.fazenda.gov.br", "sec.gov",
+    # ── Buscadores ──
     "google.com", "google.com.br", "bing.com", "yahoo.com", "duckduckgo.com",
-    "brave.com", "amazon.com", "amazon.com.br", "mercadolivre.com.br",
-    "olx.com.br", "magazineluiza.com.br", "americanas.com.br",
-    "albato.com", "zapier.com", "make.com", "n8n.io",
-    "community.shopify.com", "wordpress.org",
+    "brave.com", "search.brave.com",
+    # ── Marketplaces grandes ──
+    "amazon.com", "amazon.com.br", "mercadolivre.com.br", "aliexpress.com",
+    "olx.com.br", "magazineluiza.com.br", "americanas.com.br", "casasbahia.com.br",
+    "shopee.com.br", "wish.com", "ebay.com",
+    # ── Automacao e integracao ──
+    "albato.com", "zapier.com", "make.com", "n8n.io", "pluga.co",
+    # ── Empregos e financeiro ──
+    "glassdoor.com", "glassdoor.com.br", "indeed.com", "catho.com.br",
+    "crunchbase.com", "bloomberg.com", "investing.com", "infomoney.com",
+    # ── Outros irrelevantes ──
+    "zhihu.com", "baidu.com", "hackerone.com", "bibleinfo.com",
+    "apps.apple.com", "play.google.com", "totvs.com", "isin.org",
+    "mobiletransaction.org", "linknacional.com.br", "lojavirtualprotegida.com.br",
+    "zendesk.com", "freshdesk.com", "intercom.com", "jivochat.com",
+    "banco.bradesco", "bb.com.br", "itau.com.br", "santander.com.br",
+    "cielofragrance.com", "community.shopify.com", "wordpress.org",
+    "investidorsardinha.r7.com", "fintech.com.br", "socialhub.pro",
+    "loja5.com.br", "basedeconhecimento.tray.com.br",
+    # ── Sites de plugins/modulos ──
+    "envato.com", "themeforest.net", "codecanyon.net",
 }
 
-INFORMATIONAL_SUBDOMAINS = [
-    "docs.", "doc.", "blog.", "help.", "support.", "suporte.", "ajuda.",
-    "api.", "developer.", "dev.", "status.", "central.", "atendimento.",
-    "basedeconhecimento.", "kb.", "wiki.", "faq.", "forum.",
-    "community.", "comunidade.", "learn.", "academy.",
+# Palavras no domínio que indicam site informacional
+DOMAIN_BAD_WORDS = [
+    "developer", "docs", "blog", "help", "support", "suporte", "ajuda",
+    "api", "status", "central", "atendimento", "basedeconhecimento",
+    "kb", "wiki", "faq", "forum", "community", "comunidade", "learn",
+    "academy", "tutorial", "curso", "review", "comparar",
 ]
 
 BAD_PATH_PATTERNS = [
@@ -398,7 +436,7 @@ BAD_PATH_PATTERNS = [
     "/status/", "/pricing/", "/planos/", "/careers/", "/vagas/",
     "/about/", "/sobre/", "/press/", "/imprensa/", "/parceiros/",
     "/integracoes/", "/integrations/", "/plugins/", "/apps/",
-    "/connect/", "/marketplace/",
+    "/connect/", "/marketplace/", "/modulo/", "/module/",
 ]
 
 # ══════════════════════════════════════════════════════════════════
@@ -470,7 +508,6 @@ class ProxyRotator:
                                     "pass": parts[3] if len(parts) > 3 else "",
                                 }
                                 self.proxies.append(proxy)
-                                log.debug(f"PROXY LOADED | ip={proxy['ip']} | port={proxy['port']}")
                 break
         log.info(f"Total proxies loaded: {len(self.proxies)}")
 
@@ -515,7 +552,7 @@ class FingerprintGenerator:
             "Sec-Fetch-User": "?1",
             "Sec-CH-UA-Platform": plat["sec_ch_ua_platform"],
         }
-        log.debug(f"FINGERPRINT | UA={ua[:80]} | Platform={plat['sec_ch_ua_platform']}")
+        log.debug(f"FINGERPRINT | UA={ua[:60]} | Platform={plat['sec_ch_ua_platform']}")
         return headers
 
 fingerprint = FingerprintGenerator()
@@ -547,18 +584,14 @@ class SmartRequester:
                 if proxy:
                     purl = self.proxy.get_proxy_url(proxy)
                     proxies = {"http": purl, "https": purl}
-                    log.debug(f"PROXY SELECTED | ip={proxy['ip']}")
 
-                start = time.time()
                 r = cffi_requests.get(url, impersonate=imp, timeout=timeout, headers=headers, proxies=proxies, allow_redirects=True)
-                elapsed = time.time() - start
 
-                log.debug(f"HTTP GET | status={r.status_code} | proxy={proxy['ip'] if proxy else 'DIRECT'} | imp={imp} | time={elapsed:.2f}s | url={url[:120]}")
+                log.debug(f"HTTP GET | status={r.status_code} | proxy={proxy['ip'] if proxy else 'DIRECT'} | imp={imp} | url={url[:100]}")
 
                 if r.status_code == 429:
                     with self._lock:
                         self.stats["blocked"] += 1
-                    log.warning(f"BLOCKED 429 | url={url[:80]}")
                     return None
 
                 if r.status_code == 200:
@@ -581,12 +614,10 @@ class SmartRequester:
             else:
                 opener = urllib.request.build_opener()
 
-            start = time.time()
             resp = opener.open(req, timeout=timeout)
             html = resp.read().decode("utf-8", errors="ignore")
-            elapsed = time.time() - start
 
-            log.debug(f"HTTP urllib | status={resp.status} | time={elapsed:.2f}s | url={url[:120]}")
+            log.debug(f"HTTP urllib | status={resp.status} | url={url[:100]}")
             with self._lock:
                 self.stats["success"] += 1
             return html
@@ -603,12 +634,13 @@ class SmartRequester:
 # ══════════════════════════════════════════════════════════════════
 
 class DorkEngine:
-    """Motor de busca multi-engine: Brave + DDG + Bing + Google CSE API"""
+    """Motor de busca multi-engine com rotacao: Brave + DDG + Bing + Google CSE"""
 
     def __init__(self, requester: SmartRequester):
         self.requester = requester
         self.seen_domains = set()
         self._lock = threading.Lock()
+        self._engine_index = 0
 
     def _extract_domain(self, url: str) -> str:
         try:
@@ -621,21 +653,22 @@ class DorkEngine:
             return ""
 
     def _is_valid_url(self, url: str) -> bool:
-        """Filtro de URL em 3 camadas: dominio, subdominio, path"""
+        """Filtro de URL em 4 camadas: dominio, bad words, path, dedup"""
         domain = self._extract_domain(url)
         if not domain:
             return False
 
-        # Camada 1: Blacklist de dominio
+        # Camada 1: Blacklist de dominio exato
         for bl in DOMAIN_BLACKLIST:
             if domain == bl or domain.endswith("." + bl):
                 log.debug(f"FILTERED [BLACKLIST] | {url[:80]} | match={bl}")
                 return False
 
-        # Camada 2: Subdominio informacional
-        for sub in INFORMATIONAL_SUBDOMAINS:
-            if domain.startswith(sub):
-                log.debug(f"FILTERED [SUBDOMAIN] | {url[:80]} | match={sub}")
+        # Camada 2: Palavras ruins no dominio (developer, docs, blog, etc)
+        domain_parts = domain.replace(".", " ").replace("-", " ").lower()
+        for bad_word in DOMAIN_BAD_WORDS:
+            if bad_word in domain_parts:
+                log.debug(f"FILTERED [DOMAIN_WORD] | {url[:80]} | word={bad_word}")
                 return False
 
         # Camada 3: Path ruim
@@ -645,10 +678,10 @@ class DorkEngine:
                 log.debug(f"FILTERED [PATH] | {url[:80]} | match={bad}")
                 return False
 
-        # Camada 4: Dedup por dominio (apenas 1 URL por dominio)
+        # Camada 4: Dedup por dominio
         with self._lock:
             if domain in self.seen_domains:
-                log.debug(f"FILTERED [DEDUP] | {url[:80]} | domain={domain}")
+                log.debug(f"FILTERED [DEDUP] | {url[:80]}")
                 return False
             self.seen_domains.add(domain)
 
@@ -656,7 +689,6 @@ class DorkEngine:
         return True
 
     def _clean_url(self, url: str) -> str:
-        """Limpar URL removendo tracking params"""
         try:
             parsed = urllib.parse.urlparse(url)
             clean = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
@@ -667,10 +699,9 @@ class DorkEngine:
             return url
 
     # ─────────────────────────────────────────────────
-    #  ENGINE 1: BRAVE SEARCH (principal)
+    #  ENGINE 1: BRAVE SEARCH
     # ─────────────────────────────────────────────────
     def search_brave(self, query: str, max_pages: int = 3) -> Set[str]:
-        """Brave Search - engine principal, retorna resultados limpos"""
         urls = set()
         log.info(f"BRAVE SEARCH | query={query}")
 
@@ -691,7 +722,6 @@ class DorkEngine:
                 html = resp.read().decode("utf-8", errors="ignore")
 
                 page_urls = set()
-                # Padrão 1: href em resultados
                 for m in re.finditer(r'href="(https?://[^"]+)"', html):
                     u = m.group(1)
                     domain = self._extract_domain(u)
@@ -700,16 +730,15 @@ class DorkEngine:
 
                 new = page_urls - urls
                 urls.update(page_urls)
-                log.info(f"BRAVE page {page} | found={len(page_urls)} | new={len(new)} | status={resp.status}")
+                log.info(f"BRAVE page {page} | found={len(page_urls)} | new={len(new)}")
 
                 if page < max_pages - 1:
-                    delay = random.uniform(SEARCH_DELAY_MIN, SEARCH_DELAY_MAX)
-                    time.sleep(delay)
+                    time.sleep(random.uniform(SEARCH_DELAY_MIN, SEARCH_DELAY_MAX))
 
             except urllib.error.HTTPError as e:
                 if e.code == 429:
-                    log.warning(f"BRAVE RATE LIMITED | page={page} | waiting 15s")
-                    time.sleep(15)
+                    log.warning(f"BRAVE RATE LIMITED | page={page} | waiting 20s")
+                    time.sleep(20)
                 else:
                     log.error(f"BRAVE ERROR | page={page} | {e}")
                 break
@@ -723,8 +752,7 @@ class DorkEngine:
     # ─────────────────────────────────────────────────
     #  ENGINE 2: DUCKDUCKGO HTML
     # ─────────────────────────────────────────────────
-    def search_ddg(self, query: str, max_pages: int = 3) -> Set[str]:
-        """DuckDuckGo HTML - funciona melhor no NetHunter"""
+    def search_ddg(self, query: str, max_pages: int = 2) -> Set[str]:
         urls = set()
         log.info(f"DDG SEARCH | query={query}")
 
@@ -747,13 +775,11 @@ class DorkEngine:
                 html = resp.read().decode("utf-8", errors="ignore")
 
                 page_urls = set()
-                # Padrão DDG: uddg redirect
                 for m in re.finditer(r'uddg=(https?%3A[^&"\']+)', html):
                     u = urllib.parse.unquote(m.group(1))
                     if "duckduckgo" not in u:
                         page_urls.add(self._clean_url(u))
 
-                # Padrão DDG: href direto
                 for m in re.finditer(r'class="result__a"[^>]*href="(https?://[^"]+)"', html):
                     u = m.group(1)
                     if "duckduckgo" not in u:
@@ -761,15 +787,14 @@ class DorkEngine:
 
                 new = page_urls - urls
                 urls.update(page_urls)
-                log.info(f"DDG page {page} | found={len(page_urls)} | new={len(new)} | status={resp.status}")
+                log.info(f"DDG page {page} | found={len(page_urls)} | new={len(new)}")
 
                 if resp.status == 202:
-                    log.warning(f"DDG returned 202 (rate limited)")
+                    log.warning("DDG returned 202 (rate limited)")
                     break
 
                 if page < max_pages - 1:
-                    delay = random.uniform(SEARCH_DELAY_MIN, SEARCH_DELAY_MAX)
-                    time.sleep(delay)
+                    time.sleep(random.uniform(SEARCH_DELAY_MIN, SEARCH_DELAY_MAX))
 
             except Exception as e:
                 log.error(f"DDG ERROR | page={page} | {type(e).__name__}: {str(e)[:80]}")
@@ -782,7 +807,6 @@ class DorkEngine:
     #  ENGINE 3: BING
     # ─────────────────────────────────────────────────
     def search_bing(self, query: str, max_pages: int = 2) -> Set[str]:
-        """Bing Search"""
         urls = set()
         log.info(f"BING SEARCH | query={query}")
 
@@ -803,29 +827,22 @@ class DorkEngine:
                 html = resp.read().decode("utf-8", errors="ignore")
 
                 page_urls = set()
-                # Padrão 1: cite tag
                 for m in re.finditer(r'<cite[^>]*>(https?://[^<]+)</cite>', html):
                     u = re.sub(r'<[^>]+>', '', m.group(1)).strip().split(" ")[0]
                     if u.startswith("http"):
                         page_urls.add(self._clean_url(u))
 
-                # Padrão 2: h2 > a href
                 for m in re.finditer(r'<h2[^>]*><a[^>]+href="(https?://[^"]+)"', html):
                     u = m.group(1)
                     if "bing.com" not in u and "microsoft.com" not in u:
                         page_urls.add(self._clean_url(u))
 
-                # Padrão 3: data-bm em resultados organicos
-                for m in re.finditer(r'<a[^>]+href="(https?://(?!www\.bing|login\.live|go\.microsoft)[^"]+)"[^>]*class="[^"]*tilk[^"]*"', html):
-                    page_urls.add(self._clean_url(m.group(1)))
-
                 new = page_urls - urls
                 urls.update(page_urls)
-                log.info(f"BING page {page} | found={len(page_urls)} | new={len(new)} | status={resp.status}")
+                log.info(f"BING page {page} | found={len(page_urls)} | new={len(new)}")
 
                 if page < max_pages - 1:
-                    delay = random.uniform(SEARCH_DELAY_MIN, SEARCH_DELAY_MAX)
-                    time.sleep(delay)
+                    time.sleep(random.uniform(SEARCH_DELAY_MIN, SEARCH_DELAY_MAX))
 
             except Exception as e:
                 log.error(f"BING ERROR | page={page} | {type(e).__name__}: {str(e)[:80]}")
@@ -838,7 +855,6 @@ class DorkEngine:
     #  ENGINE 4: GOOGLE CSE API (opcional)
     # ─────────────────────────────────────────────────
     def search_google_cse(self, query: str, max_pages: int = 2) -> Set[str]:
-        """Google Custom Search Engine API - 100 buscas/dia gratis"""
         if not GOOGLE_CSE_API_KEY or not GOOGLE_CSE_CX:
             return set()
 
@@ -849,13 +865,9 @@ class DorkEngine:
             try:
                 start = page * 10 + 1
                 params = urllib.parse.urlencode({
-                    "key": GOOGLE_CSE_API_KEY,
-                    "cx": GOOGLE_CSE_CX,
-                    "q": query,
-                    "start": start,
-                    "num": 10,
-                    "lr": "lang_pt",
-                    "cr": "countryBR",
+                    "key": GOOGLE_CSE_API_KEY, "cx": GOOGLE_CSE_CX,
+                    "q": query, "start": start, "num": 10,
+                    "lr": "lang_pt", "cr": "countryBR",
                 })
                 url = f"https://www.googleapis.com/customsearch/v1?{params}"
 
@@ -869,7 +881,6 @@ class DorkEngine:
                         urls.add(self._clean_url(link))
 
                 log.info(f"GOOGLE CSE page {page} | items={len(data.get('items', []))}")
-
                 if page < max_pages - 1:
                     time.sleep(1)
 
@@ -877,67 +888,65 @@ class DorkEngine:
                 log.error(f"GOOGLE CSE ERROR | {type(e).__name__}: {str(e)[:80]}")
                 break
 
-        log.info(f"GOOGLE CSE TOTAL | urls={len(urls)}")
         return urls
 
     # ─────────────────────────────────────────────────
-    #  MULTI-ENGINE SEARCH
+    #  ROTACAO DE ENGINES POR DORK
     # ─────────────────────────────────────────────────
-    def search_all_engines(self, dork: str) -> Set[str]:
-        """Buscar em todas as engines disponiveis"""
-        all_urls = set()
+    def _get_next_engine(self) -> str:
+        """Rotaciona entre engines para evitar rate limit"""
+        engines = ["brave", "ddg", "bing"]
+        engine = engines[self._engine_index % len(engines)]
+        self._engine_index += 1
+        return engine
 
-        # Engine 1: Brave (principal)
-        brave_urls = self.search_brave(dork, max_pages=2)
-        all_urls.update(brave_urls)
-
-        delay = random.uniform(3, 5)
-        time.sleep(delay)
-
-        # Engine 2: DDG
-        ddg_urls = self.search_ddg(dork, max_pages=2)
-        all_urls.update(ddg_urls)
-
-        delay = random.uniform(3, 5)
-        time.sleep(delay)
-
-        # Engine 3: Bing
-        bing_urls = self.search_bing(dork, max_pages=1)
-        all_urls.update(bing_urls)
-
-        # Engine 4: Google CSE (se configurado)
-        if GOOGLE_CSE_API_KEY:
-            cse_urls = self.search_google_cse(dork, max_pages=1)
-            all_urls.update(cse_urls)
-
-        log.info(f"ALL ENGINES | dork={dork[:60]} | brave={len(brave_urls)} | ddg={len(ddg_urls)} | bing={len(bing_urls)} | total={len(all_urls)}")
-        return all_urls
+    def search_single_engine(self, dork: str, engine: str) -> Set[str]:
+        """Buscar em uma engine específica"""
+        if engine == "brave":
+            return self.search_brave(dork, max_pages=3)
+        elif engine == "ddg":
+            return self.search_ddg(dork, max_pages=2)
+        elif engine == "bing":
+            return self.search_bing(dork, max_pages=2)
+        elif engine == "cse":
+            return self.search_google_cse(dork, max_pages=2)
+        return set()
 
     def collect_urls(self, dorks: List[str], niche_terms: List[str] = None) -> List[str]:
-        """Coletar URLs de todas as dorks com filtro de nicho"""
+        """Coletar URLs de todas as dorks com rotacao de engines e filtro de nicho"""
         all_raw_urls = set()
         valid_urls = []
 
-        total_dorks = len(dorks)
         expanded_dorks = list(dorks)
 
         # Se tem nicho, adicionar variações com termos do nicho
         if niche_terms:
-            for dork in dorks[:5]:  # Top 5 dorks com termos de nicho
-                for term in niche_terms[:3]:  # Top 3 termos
+            for dork in dorks[:4]:
+                for term in niche_terms[:2]:
                     expanded_dorks.append(f"{dork} {term}")
 
-        log.info(f"COLLECTING | base_dorks={total_dorks} | expanded={len(expanded_dorks)} | niche={niche_terms}")
+        log.info(f"COLLECTING | base_dorks={len(dorks)} | expanded={len(expanded_dorks)} | niche={niche_terms}")
 
         for i, dork in enumerate(expanded_dorks, 1):
-            print(f"  {D}{datetime.now().strftime('%H:%M:%S')}{RST} [{C}-{RST}] Dork [{i}/{len(expanded_dorks)}]: {Y}{dork[:60]}{RST}...")
-            log.info(f"DORK [{i}/{len(expanded_dorks)}] | {dork}")
+            # Rotação de engine: cada dork vai para uma engine diferente
+            engine = self._get_next_engine()
 
-            raw_urls = self.search_all_engines(dork)
+            print(f"  {D}{datetime.now().strftime('%H:%M:%S')}{RST} [{C}-{RST}] Dork [{i}/{len(expanded_dorks)}]: {Y}{dork[:55]}{RST} [{M}{engine.upper()}{RST}]")
+            log.info(f"DORK [{i}/{len(expanded_dorks)}] | engine={engine} | {dork}")
+
+            raw_urls = self.search_single_engine(dork, engine)
+
+            # Se a engine principal retornou pouco, tentar outra
+            if len(raw_urls) < 3:
+                backup_engine = self._get_next_engine()
+                if backup_engine != engine:
+                    log.info(f"LOW RESULTS ({len(raw_urls)}), trying backup engine: {backup_engine}")
+                    backup_urls = self.search_single_engine(dork, backup_engine)
+                    raw_urls.update(backup_urls)
+
             new_raw = raw_urls - all_raw_urls
             all_raw_urls.update(raw_urls)
 
-            # Filtrar URLs validas
             for url in new_raw:
                 if self._is_valid_url(url):
                     valid_urls.append(url)
@@ -945,10 +954,20 @@ class DorkEngine:
             print(f"  {D}{datetime.now().strftime('%H:%M:%S')}{RST} [{G}+{RST}] -> {len(new_raw)} raw, {G}{len(valid_urls)}{RST} validas acumuladas")
             log.info(f"DORK RESULT | raw_new={len(new_raw)} | valid_total={len(valid_urls)}")
 
-            # Delay entre dorks para evitar rate limit
+            # Delay entre dorks
             if i < len(expanded_dorks):
-                delay = random.uniform(SEARCH_DELAY_MIN + 2, SEARCH_DELAY_MAX + 3)
+                delay = random.uniform(SEARCH_DELAY_MIN, SEARCH_DELAY_MAX)
                 time.sleep(delay)
+
+        # Se Google CSE está configurado, usar como bonus
+        if GOOGLE_CSE_API_KEY:
+            for dork in dorks[:3]:
+                cse_urls = self.search_google_cse(dork, max_pages=1)
+                new_cse = cse_urls - all_raw_urls
+                all_raw_urls.update(cse_urls)
+                for url in new_cse:
+                    if self._is_valid_url(url):
+                        valid_urls.append(url)
 
         log.info(f"COLLECTION DONE | total_raw={len(all_raw_urls)} | valid={len(valid_urls)}")
         return valid_urls
@@ -963,9 +982,9 @@ class SiteAnalyzer:
 
     ECOMMERCE_PLATFORMS = {
         "WooCommerce": ["woocommerce", "wc-ajax", "add-to-cart", "wp-content/plugins/woocommerce"],
-        "Shopify": ["shopify", "cdn.shopify", "myshopify"],
-        "VTEX": ["vtex", "vtexcommercestable", "vteximg"],
-        "Magento": ["magento", "mage-", "checkout/cart"],
+        "Shopify": ["cdn.shopify", "myshopify", "shopify-section"],
+        "VTEX": ["vtexcommercestable", "vteximg", "vtex.com"],
+        "Magento": ["mage-", "checkout/cart", "magento"],
         "Nuvemshop": ["nuvemshop", "lojanuvem", "nuvem.shop"],
         "Tray": ["tray.com.br", "traycorp", "tray-checkout"],
         "Loja Integrada": ["lojaintegrada", "loja-integrada"],
@@ -977,19 +996,19 @@ class SiteAnalyzer:
     }
 
     NICHE_KEYWORDS = {
-        "Loja de Roupas / Moda": ["roupa", "camiseta", "vestido", "blusa", "calca", "jeans", "moda", "fashion", "look", "colecao", "feminino", "masculino", "plus size", "estilo", "tendencia"],
-        "Loja de Calcados / Tenis": ["tenis", "sapato", "bota", "sandalia", "chinelo", "calcado", "sneaker", "sapatilha", "tamanco"],
-        "Loja de Eletronicos": ["celular", "smartphone", "notebook", "tablet", "fone", "headset", "eletronico", "informatica", "pc gamer", "monitor", "teclado"],
+        "Loja de Roupas / Moda": ["roupa", "camiseta", "vestido", "blusa", "calca", "jeans", "moda", "fashion", "look", "colecao", "feminino", "masculino", "plus size"],
+        "Loja de Calcados / Tenis": ["tenis", "sapato", "bota", "sandalia", "chinelo", "calcado", "sneaker", "sapatilha"],
+        "Loja de Eletronicos": ["celular", "smartphone", "notebook", "tablet", "fone", "headset", "eletronico", "informatica", "pc gamer"],
         "Gift Card / Vale Presente": ["gift card", "giftcard", "vale presente", "cartao presente", "credito digital", "recarga"],
-        "Joalheria / Relogios": ["joia", "anel", "colar", "brinco", "pulseira", "relogio", "ouro", "prata", "alianca", "semi joia"],
-        "Cosmeticos / Beleza": ["cosmetico", "maquiagem", "perfume", "batom", "base", "skincare", "creme", "hidratante", "beleza", "cabelo", "shampoo"],
-        "Suplementos / Saude": ["suplemento", "whey", "creatina", "vitamina", "proteina", "pre treino", "fitness", "academia", "bcaa"],
-        "Pet Shop": ["pet", "racao", "cachorro", "gato", "petisco", "coleira", "brinquedo pet", "veterinario", "animal"],
-        "Casa / Decoracao": ["decoracao", "movel", "sofa", "mesa", "cadeira", "cortina", "tapete", "luminaria", "cama", "travesseiro"],
-        "Alimentos / Bebidas": ["alimento", "cafe", "vinho", "cerveja", "chocolate", "gourmet", "organico", "tempero", "doce", "bolo"],
-        "Esportes / Fitness": ["esporte", "academia", "corrida", "futebol", "bicicleta", "yoga", "pilates", "natacao", "camping"],
-        "Infantil / Brinquedos": ["brinquedo", "infantil", "crianca", "bebe", "kids", "carrinho", "boneca", "lego", "educativo"],
-        "Farmacia / Saude": ["farmacia", "medicamento", "remedio", "saude", "bem estar", "dermocosmetico"],
+        "Joalheria / Relogios": ["joia", "anel", "colar", "brinco", "pulseira", "relogio", "ouro", "prata", "alianca"],
+        "Cosmeticos / Beleza": ["cosmetico", "maquiagem", "perfume", "batom", "skincare", "creme", "hidratante", "beleza", "cabelo"],
+        "Suplementos / Saude": ["suplemento", "whey", "creatina", "vitamina", "proteina", "pre treino", "fitness"],
+        "Pet Shop": ["pet", "racao", "cachorro", "gato", "petisco", "coleira", "veterinario"],
+        "Casa / Decoracao": ["decoracao", "movel", "sofa", "mesa", "cadeira", "cortina", "tapete", "luminaria"],
+        "Alimentos / Bebidas": ["alimento", "cafe", "vinho", "cerveja", "chocolate", "gourmet", "organico"],
+        "Esportes / Fitness": ["esporte", "academia", "corrida", "futebol", "bicicleta", "yoga", "natacao"],
+        "Infantil / Brinquedos": ["brinquedo", "infantil", "crianca", "bebe", "kids", "boneca", "lego"],
+        "Farmacia / Saude": ["farmacia", "medicamento", "remedio", "saude", "dermocosmetico"],
         "Loja Geral / Variedades": ["loja", "produto", "comprar", "oferta", "promocao", "desconto"],
     }
 
@@ -997,9 +1016,9 @@ class SiteAnalyzer:
         self.requester = requester
         self.gateway = GATEWAYS[gateway_key]
         self.gateway_key = gateway_key
+        self.is_ambiguous = gateway_key in AMBIGUOUS_GATEWAYS
 
     def analyze(self, url: str) -> Optional[Dict]:
-        """Analisa um site e retorna dados ou None se invalido"""
         log.info(f"ANALYZING | {url}")
 
         try:
@@ -1011,8 +1030,8 @@ class SiteAnalyzer:
             html_lower = html.lower()
             log.debug(f"HTML SIZE | {len(html)} bytes | {url[:80]}")
 
-            # ── Verificar se é loja real (Store Validator) ──
-            store_score = self._calculate_store_score(html_lower)
+            # ── Store Validator ──
+            store_score, score_details = self._calculate_store_score(html_lower)
             log.info(f"STORE SCORE | score={store_score} | threshold={STORE_SCORE_THRESHOLD} | {url[:80]}")
 
             if store_score < STORE_SCORE_THRESHOLD:
@@ -1020,10 +1039,10 @@ class SiteAnalyzer:
                 return None
 
             # ── Confirmar gateway no HTML ──
-            gateway_confirmed, gateway_evidence = self._confirm_gateway(html, html_lower)
+            gateway_confirmed, gateway_evidence = self._confirm_gateway(html, html_lower, url)
             log.info(f"GATEWAY CHECK | confirmed={gateway_confirmed} | evidence={gateway_evidence[:80] if gateway_evidence else 'NONE'} | {url[:80]}")
 
-            # ── Detectar plataforma e-commerce ──
+            # ── Detectar plataforma ──
             platform = self._detect_platform(html_lower)
 
             # ── Classificar nicho ──
@@ -1057,7 +1076,6 @@ class SiteAnalyzer:
 
         except Exception as e:
             log.error(f"ANALYZE ERROR | {url[:80]} | {type(e).__name__}: {str(e)[:100]}")
-            log.error(f"TRACEBACK | {traceback.format_exc()[:300]}")
             return None
 
     def _extract_domain(self, url: str) -> str:
@@ -1070,12 +1088,12 @@ class SiteAnalyzer:
         except:
             return ""
 
-    def _calculate_store_score(self, html_lower: str) -> int:
+    def _calculate_store_score(self, html_lower: str) -> Tuple[int, List[str]]:
         """Calcular score de loja real (-100 a +100)"""
         score = 0
         details = []
 
-        # ── SINAIS POSITIVOS (loja real) ──
+        # ── SINAIS POSITIVOS ──
         positive_signals = [
             (r'R\$\s*\d+[.,]\d{2}', 6, "PRECO_BRL"),
             (r'add.?to.?cart|adicionar.?ao.?carrinho|comprar.?agora|buy.?now', 5, "ADD_CART"),
@@ -1083,16 +1101,13 @@ class SiteAnalyzer:
             (r'checkout|finalizar.?compra|fechar.?pedido', 5, "CHECKOUT"),
             (r'frete|entrega|envio|shipping|sedex|correios', 4, "FRETE"),
             (r'cep|calcular.?frete|prazo.?de.?entrega', 3, "CEP_FRETE"),
-            (r'produto|product|item|mercadoria', 3, "PRODUTO"),
             (r'estoque|disponivel|em.?estoque|in.?stock', 3, "ESTOQUE"),
             (r'tamanho|size|cor|color|variacao', 3, "VARIACAO"),
-            (r'desconto|cupom|promocao|oferta|sale', 3, "DESCONTO"),
             (r'parcelamento|parcela|vezes.?sem.?juros|installment', 4, "PARCELAMENTO"),
             (r'pix|boleto|cartao.?de.?credito|credit.?card', 4, "FORMA_PGTO"),
             (r'avaliacao|review|estrela|star|nota', 2, "REVIEW"),
-            (r'categoria|department|departamento', 2, "CATEGORIA"),
             (r'wishlist|lista.?de.?desejos|favorito', 2, "WISHLIST"),
-            (r'minha.?conta|my.?account|login|cadastr', 2, "CONTA"),
+            (r'minha.?conta|my.?account|cadastr', 2, "CONTA"),
         ]
 
         for pattern, points, name in positive_signals:
@@ -1102,7 +1117,7 @@ class SiteAnalyzer:
                 score += add
                 details.append(f"+{add} {name}({matches}x)")
 
-        # ── SINAIS DE PLATAFORMA E-COMMERCE ──
+        # ── SINAIS DE PLATAFORMA ──
         for platform, keywords in self.ECOMMERCE_PLATFORMS.items():
             for kw in keywords:
                 if kw in html_lower:
@@ -1110,19 +1125,19 @@ class SiteAnalyzer:
                     details.append(f"+5 PLATFORM({platform})")
                     break
 
-        # ── SINAIS NEGATIVOS (nao e loja) ──
+        # ── SINAIS NEGATIVOS ──
         negative_signals = [
             (r'documentacao|documentation|api.?reference', -15, "DOCS"),
             (r'tutorial|how.?to|como.?fazer|passo.?a.?passo', -10, "TUTORIAL"),
             (r'blog.?post|artigo|article|publicado.?em|posted.?on', -10, "BLOG"),
-            (r'changelog|release.?notes|versao|version', -12, "CHANGELOG"),
+            (r'changelog|release.?notes|versao|version.?\d', -12, "CHANGELOG"),
             (r'sdk|npm.?install|pip.?install|composer|yarn.?add', -15, "SDK"),
             (r'endpoint|api.?key|token|webhook|callback', -10, "API"),
-            (r'integra[cç][aã]o|integration|plugin|modulo|module', -8, "INTEGRACAO"),
+            (r'integra[cç][aã]o.?com|integration.?with|plugin.?de|modulo.?de', -8, "INTEGRACAO"),
             (r'comparativo|versus|vs\.|alternativa|competitor', -8, "COMPARATIVO"),
             (r'reclama[cç][aã]o|reclamar|denunciar|fraude', -10, "RECLAMACAO"),
             (r'vagas|careers|trabalhe.?conosco|hiring', -10, "VAGAS"),
-            (r'termos.?de.?uso|privacy.?policy|politica.?de.?privacidade', -2, "LEGAL"),
+            (r'cupom.?de.?desconto|codigo.?promocional|coupon.?code', -8, "CUPOM_SITE"),
         ]
 
         for pattern, points, name in negative_signals:
@@ -1132,63 +1147,93 @@ class SiteAnalyzer:
                 score += add
                 details.append(f"{add} {name}({matches}x)")
 
-        log.debug(f"SCORE DETAILS | score={score} | {' | '.join(details[:15])}")
-        return score
+        # ── PENALIDADE: titulo contém "plugin" ou "módulo" ──
+        title_lower = ""
+        title_match = re.search(r'<title[^>]*>([^<]+)</title>', html_lower)
+        if title_match:
+            title_lower = title_match.group(1).lower()
+            if any(w in title_lower for w in ["plugin", "modulo", "módulo", "extensão", "extensao", "addon"]):
+                score -= 30
+                details.append("-30 PLUGIN_TITLE")
 
-    def _confirm_gateway(self, html: str, html_lower: str) -> Tuple[bool, str]:
-        """Confirmar presença da gateway no HTML via assinaturas técnicas"""
+        log.debug(f"SCORE DETAILS | score={score} | {' | '.join(details[:12])}")
+        return score, details
+
+    def _confirm_gateway(self, html: str, html_lower: str, url: str) -> Tuple[bool, str]:
+        """Confirmar presença da gateway no HTML via assinaturas técnicas.
+        Para gateways ambíguas, exige evidência FORTE (JS_SRC, IFRAME, FORM para domínio da gateway)."""
         signatures = self.gateway["signatures"]
+        js_domains = self.gateway.get("js_domains", [])
         evidence_parts = []
+        strong_evidence = False
 
-        # Zona 1: Tags <script src="...">
+        # Zona 1: Tags <script src="..."> (EVIDENCIA FORTE)
         for m in re.finditer(r'<script[^>]+src=["\']([^"\']+)["\']', html, re.IGNORECASE):
             src = m.group(1).lower()
-            for sig in signatures:
-                if sig in src:
+            for jd in js_domains:
+                if jd in src:
                     evidence_parts.append(f"JS_SRC:{m.group(1)[:80]}")
+                    strong_evidence = True
+            if not strong_evidence:
+                for sig in signatures:
+                    if sig in src:
+                        evidence_parts.append(f"JS_SRC:{m.group(1)[:80]}")
+                        strong_evidence = True
 
-        # Zona 2: Tags <iframe src="...">
+        # Zona 2: Tags <iframe src="..."> (EVIDENCIA FORTE)
         for m in re.finditer(r'<iframe[^>]+src=["\']([^"\']+)["\']', html, re.IGNORECASE):
             src = m.group(1).lower()
-            for sig in signatures:
-                if sig in src:
+            for jd in js_domains:
+                if jd in src:
                     evidence_parts.append(f"IFRAME:{m.group(1)[:80]}")
+                    strong_evidence = True
 
-        # Zona 3: Tags <form action="...">
+        # Zona 3: Tags <form action="..."> para domínio da gateway (EVIDENCIA FORTE)
         for m in re.finditer(r'<form[^>]+action=["\']([^"\']+)["\']', html, re.IGNORECASE):
             action = m.group(1).lower()
-            for sig in signatures:
-                if sig in action:
+            for jd in js_domains:
+                if jd in action:
                     evidence_parts.append(f"FORM:{m.group(1)[:80]}")
+                    strong_evidence = True
 
-        # Zona 4: Links <a href="...">
+        # Zona 4: Links <a href="..."> apontando para domínio da gateway
+        gateway_link_count = 0
         for m in re.finditer(r'<a[^>]+href=["\']([^"\']+)["\']', html, re.IGNORECASE):
             href = m.group(1).lower()
+            for jd in js_domains:
+                if jd in href:
+                    gateway_link_count += 1
+                    if gateway_link_count <= 2:
+                        evidence_parts.append(f"LINK_GW:{m.group(1)[:80]}")
+
+        # Zona 5: Texto inline (EVIDENCIA FRACA - só para gateways não-ambíguas)
+        if not self.is_ambiguous:
             for sig in signatures:
-                if sig in href:
-                    evidence_parts.append(f"LINK:{m.group(1)[:80]}")
+                if sig in html_lower:
+                    context_patterns = [
+                        f'pagamento.*{re.escape(sig)}',
+                        f'{re.escape(sig)}.*pagamento',
+                        f'{re.escape(sig)}.*checkout',
+                        f'gateway.*{re.escape(sig)}',
+                        f'formas.?de.?pagamento.*{re.escape(sig)}',
+                    ]
+                    for cp in context_patterns:
+                        if re.search(cp, html_lower):
+                            evidence_parts.append(f"TEXT_CONTEXT:{sig}")
+                            break
 
-        # Zona 5: Texto inline (menor peso)
-        for sig in signatures:
-            if sig in html_lower:
-                # Verificar se nao e apenas menção textual
-                context_patterns = [
-                    f'pagamento.*{re.escape(sig)}',
-                    f'{re.escape(sig)}.*pagamento',
-                    f'{re.escape(sig)}.*checkout',
-                    f'gateway.*{re.escape(sig)}',
-                ]
-                for cp in context_patterns:
-                    if re.search(cp, html_lower):
-                        evidence_parts.append(f"TEXT_CONTEXT:{sig}")
-                        break
+        # Para gateways AMBÍGUAS, exigir evidência forte
+        if self.is_ambiguous:
+            confirmed = strong_evidence
+            if not confirmed:
+                log.info(f"AMBIGUOUS GATEWAY | {self.gateway_key} | no strong evidence | {url[:80]}")
+        else:
+            confirmed = len(evidence_parts) > 0
 
-        confirmed = len(evidence_parts) > 0
         evidence = " | ".join(evidence_parts[:5]) if evidence_parts else ""
         return confirmed, evidence
 
     def _detect_platform(self, html_lower: str) -> str:
-        """Detectar plataforma e-commerce"""
         for platform, keywords in self.ECOMMERCE_PLATFORMS.items():
             for kw in keywords:
                 if kw in html_lower:
@@ -1196,7 +1241,6 @@ class SiteAnalyzer:
         return "Desconhecida"
 
     def _classify_niche(self, html_lower: str) -> str:
-        """Classificar nicho da loja baseado em keywords"""
         scores = {}
         for niche, keywords in self.NICHE_KEYWORDS.items():
             score = 0
@@ -1209,7 +1253,7 @@ class SiteAnalyzer:
 
         if scores:
             best = max(scores, key=scores.get)
-            log.debug(f"NICHE SCORES | top={best}({scores[best]}) | all={dict(sorted(scores.items(), key=lambda x: -x[1])[:5])}")
+            log.debug(f"NICHE SCORES | top={best}({scores[best]})")
             return best
 
         return "Loja Geral / Variedades"
@@ -1228,7 +1272,7 @@ class SiteAnalyzer:
         emails = set()
         for m in re.finditer(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', html):
             email = m.group(0).lower()
-            if not any(x in email for x in ["@example", "@test", "@sentry", "@wixpress", ".png", ".jpg", ".gif"]):
+            if not any(x in email for x in ["@example", "@test", "@sentry", "@wixpress", ".png", ".jpg", ".gif", "@email.com"]):
                 emails.add(email)
         return list(emails)
 
@@ -1236,7 +1280,7 @@ class SiteAnalyzer:
         phones = set()
         for m in re.finditer(r'(?:\+55\s?)?(?:\(?\d{2}\)?\s?)?\d{4,5}[-.\s]?\d{4}', html):
             phone = re.sub(r'[^\d+]', '', m.group(0))
-            if len(phone) >= 10:
+            if 10 <= len(phone) <= 13:
                 phones.add(phone)
         return list(phones)
 
@@ -1253,24 +1297,11 @@ class ReportGenerator:
         self.timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     def generate_all(self, results: List[Dict], scan_info: Dict) -> Dict[str, str]:
-        """Gerar todos os relatórios"""
         files = {}
-
-        # TXT detalhado
-        txt_path = self._generate_txt(results, scan_info)
-        files["TXT"] = txt_path
-
-        # JSON
-        json_path = self._generate_json(results, scan_info)
-        files["JSON"] = json_path
-
-        # URLs limpas (todas)
-        urls_path = self._generate_urls(results)
-        files["URLS"] = urls_path
-
-        # LOJAS confirmadas
-        lojas_path = self._generate_lojas(results)
-        files["LOJAS"] = lojas_path
+        files["TXT"] = self._generate_txt(results, scan_info)
+        files["JSON"] = self._generate_json(results, scan_info)
+        files["URLS"] = self._generate_urls(results)
+        files["LOJAS"] = self._generate_lojas(results)
 
         for fmt, path in files.items():
             size = os.path.getsize(path) if os.path.isfile(path) else 0
@@ -1291,15 +1322,12 @@ class ReportGenerator:
             f.write(f"  Nicho: {scan_info.get('niche', 'Todos')}\n")
             f.write("=" * 70 + "\n\n")
 
-            # Resumo
             f.write(f"  URLs coletadas: {scan_info.get('total_urls', 0)}\n")
             f.write(f"  Sites analisados: {scan_info.get('analyzed', 0)}\n")
             f.write(f"  Gateway confirmada: {len(confirmed)}\n")
             f.write(f"  Lojas sem gateway: {len(stores)}\n")
-            f.write(f"  Tempo total: {scan_info.get('elapsed', '0')}s\n")
-            f.write(f"  Engines: Brave + DDG + Bing\n\n")
+            f.write(f"  Tempo total: {scan_info.get('elapsed', '0')}s\n\n")
 
-            # Sites com gateway confirmada
             if confirmed:
                 f.write("=" * 70 + "\n")
                 f.write("  SITES COM GATEWAY CONFIRMADA\n")
@@ -1310,15 +1338,13 @@ class ReportGenerator:
                     f.write(f"      Nicho: {r.get('niche', 'N/A')}\n")
                     f.write(f"      Plataforma: {r.get('platform', 'N/A')}\n")
                     f.write(f"      Score: {r.get('store_score', 0)}\n")
-                    f.write(f"      Evidencia: {r.get('gateway_evidence', 'N/A')[:80]}\n")
+                    f.write(f"      Evidencia: {r.get('gateway_evidence', 'N/A')[:100]}\n")
                     if r.get("emails"):
                         f.write(f"      Emails: {', '.join(r['emails'])}\n")
                     if r.get("phones"):
                         f.write(f"      Telefones: {', '.join(r['phones'])}\n")
-                    f.write(f"      Descricao: {r.get('description', 'N/A')[:120]}\n")
-                    f.write("\n")
+                    f.write(f"      Descricao: {r.get('description', 'N/A')[:120]}\n\n")
 
-            # Lojas sem gateway confirmada mas com score alto
             if stores:
                 f.write("=" * 70 + "\n")
                 f.write("  LOJAS SEM GATEWAY CONFIRMADA (score alto)\n")
@@ -1327,10 +1353,8 @@ class ReportGenerator:
                     f.write(f"  [{i}] {r['url']}\n")
                     f.write(f"      Titulo: {r.get('title', 'N/A')[:80]}\n")
                     f.write(f"      Nicho: {r.get('niche', 'N/A')}\n")
-                    f.write(f"      Score: {r.get('store_score', 0)}\n")
-                    f.write("\n")
+                    f.write(f"      Score: {r.get('store_score', 0)}\n\n")
 
-            # Categorias
             niches = {}
             for r in results:
                 n = r.get("niche", "Outros")
@@ -1411,15 +1435,14 @@ class GateHunter:
   {D}v{VERSION} // NETHUNTER SUPREME EDITION // Payment Gateway OSINT{RST}
 
   {M}┌──────────────────────────────────────────────────────────┐{RST}
-  {M}│{RST} {W}Engine  : Brave + DDG + Bing + Google CSE (Multi-Engine){RST} {M}│{RST}
+  {M}│{RST} {W}Engine  : Brave + DDG + Bing (Rotacao) + Google CSE{RST}      {M}│{RST}
   {M}│{RST} {W}Evasion : curl_cffi Impersonate + Proxy Pool + UA Spoof{RST} {M}│{RST}
-  {M}│{RST} {W}Filter  : 3-Layer Validation + Store Score + Niche{RST}      {M}│{RST}
+  {M}│{RST} {W}Filter  : 4-Layer Validation + Ambiguous Gateway Check{RST}  {M}│{RST}
   {M}│{RST} {W}Output  : {OUTPUT_DIR}{RST}                     {M}│{RST}
   {M}└──────────────────────────────────────────────────────────┘{RST}
 """
         print(banner)
 
-        # Config ativa
         print(f"  {D}┌{'─'*40}┐{RST}")
         print(f"  {D}│{RST} {W}CONFIGURACAO ATIVA{RST}{' '*22}{D}│{RST}")
         print(f"  {D}├{'─'*40}┤{RST}")
@@ -1428,17 +1451,15 @@ class GateHunter:
         print(f"  {D}│{RST} {C}Timeout{RST}    : {G}{REQUEST_TIMEOUT}s{RST}{' '*(26-len(str(REQUEST_TIMEOUT)))}{D}│{RST}")
         cffi_str = f"{G}OK{RST}" if CFFI_OK else f"{R}NO{RST}"
         print(f"  {D}│{RST} {C}curl_cffi{RST}  : {cffi_str}{' '*(27-2)}{D}│{RST}")
-        engines = "Brave + DDG + Bing"
+        engines = "Brave + DDG + Bing (Rotacao)"
         if GOOGLE_CSE_API_KEY:
             engines += " + CSE"
-        print(f"  {D}│{RST} {C}Engines{RST}    : {G}{engines}{RST}{' '*(27-len(engines))}{D}│{RST}")
-        log_path = os.path.join(OUTPUT_DIR if os.path.isdir(OUTPUT_DIR) else FALLBACK_OUTPUT, LOG_FILE)
+        print(f"  {D}│{RST} {C}Engines{RST}    : {G}{engines}{RST}{' '*max(0,27-len(engines))}{D}│{RST}")
         print(f"  {D}│{RST} {C}Debug Log{RST}  : {Y}Ativo{RST}{' '*(22)}{D}│{RST}")
         print(f"  {D}└{'─'*40}┘{RST}")
         print()
 
     def _show_gateway_menu(self) -> Optional[str]:
-        """Menu de seleção de gateway"""
         print(f"  {M}┌{'─'*55}┐{RST}")
         print(f"  {M}│{RST} {BOLD}{W}SELECIONE A GATEWAY DE PAGAMENTO{RST}{' '*22}{M}│{RST}")
         print(f"  {M}├{'─'*55}┤{RST}")
@@ -1448,12 +1469,14 @@ class GateHunter:
             gw = GATEWAYS[key]
             name = f"{key:15s}"
             desc = gw["desc"][:38]
-            print(f"  {M}│{RST} [{G}{i:2d}{RST}] {C}{name}{RST} {desc}{' '*(38-len(desc))}{M}│{RST}")
+            ambig = f" {Y}*{RST}" if key in AMBIGUOUS_GATEWAYS else "  "
+            print(f"  {M}│{RST} [{G}{i:2d}{RST}] {C}{name}{RST}{ambig}{desc}{' '*max(0,36-len(desc))}{M}│{RST}")
 
         print(f"  {M}├{'─'*55}┤{RST}")
         print(f"  {M}│{RST} [{Y} 0{RST}] {Y}CUSTOM{RST} - Inserir gateway personalizada{' '*13}{M}│{RST}")
         print(f"  {M}│{RST} [{R}99{RST}] {R}SAIR{RST}{' '*49}{M}│{RST}")
         print(f"  {M}└{'─'*55}┘{RST}")
+        print(f"  {D}* = Gateway ambigua (validacao extra){RST}")
         print()
 
         choice = input(f"  {G}GateHunter{RST} > ").strip()
@@ -1468,6 +1491,7 @@ class GateHunter:
                 GATEWAYS[custom] = {
                     "desc": f"{custom} - Gateway personalizada",
                     "signatures": [s.strip() for s in sigs.split(",")],
+                    "js_domains": [s.strip() for s in sigs.split(",")],
                     "dorks": [d.strip() for d in dorks_input.split(";")] if dorks_input else [f'"{custom}" loja comprar', f'"{custom}" pagamento loja online'],
                 }
                 return custom
@@ -1483,7 +1507,6 @@ class GateHunter:
             return None
 
     def _show_niche_menu(self) -> Tuple[str, List[str]]:
-        """Menu de seleção de nicho"""
         print()
         print(f"  {M}┌{'─'*55}┐{RST}")
         print(f"  {M}│{RST} {BOLD}{W}FILTRAR POR NICHO (opcional){RST}{' '*27}{M}│{RST}")
@@ -1494,7 +1517,7 @@ class GateHunter:
             niche = NICHOS[key]
             name = f"{key:30s}"
             desc = niche["desc"][:22]
-            print(f"  {M}│{RST} [{G}{i:2d}{RST}] {C}{name}{RST} {desc}{' '*(22-len(desc))}{M}│{RST}")
+            print(f"  {M}│{RST} [{G}{i:2d}{RST}] {C}{name}{RST} {desc}{' '*max(0,22-len(desc))}{M}│{RST}")
 
         print(f"  {M}└{'─'*55}┘{RST}")
         print()
@@ -1512,7 +1535,6 @@ class GateHunter:
         return "Todos", []
 
     def _execute_scan(self, gateway_key: str, niche_name: str, niche_terms: List[str]):
-        """Executar scan completo"""
         gateway = GATEWAYS[gateway_key]
         start_time = time.time()
 
@@ -1521,10 +1543,12 @@ class GateHunter:
         print(f"  {BOLD}{C}INICIANDO SCAN: {gateway_key}{RST}")
         if niche_name != "Todos":
             print(f"  {BOLD}{Y}NICHO: {niche_name}{RST}")
+        if gateway_key in AMBIGUOUS_GATEWAYS:
+            print(f"  {BOLD}{Y}MODO: Validacao rigorosa (gateway ambigua){RST}")
         print(f"  {M}{'='*60}{RST}")
         print()
 
-        log.info(f"SCAN START | gateway={gateway_key} | niche={niche_name} | dorks={len(gateway['dorks'])}")
+        log.info(f"SCAN START | gateway={gateway_key} | niche={niche_name} | dorks={len(gateway['dorks'])} | ambiguous={gateway_key in AMBIGUOUS_GATEWAYS}")
 
         ts = datetime.now().strftime("%H:%M:%S")
         print(f"  {D}{ts}{RST} [{C}*{RST}] Gateway: {G}{gateway_key}{RST}")
@@ -1535,9 +1559,9 @@ class GateHunter:
         print(f"  {D}{ts}{RST} [{C}*{RST}] Threads: {G}{MAX_THREADS}{RST}")
         print()
 
-        # ── FASE 1: Coletar URLs via Dorks ──
+        # ── FASE 1: Coletar URLs ──
         ts = datetime.now().strftime("%H:%M:%S")
-        print(f"  {D}{ts}{RST} [{C}-{RST}] {BOLD}FASE 1/3: Coletando URLs via Dorks (Multi-Engine)...{RST}")
+        print(f"  {D}{ts}{RST} [{C}-{RST}] {BOLD}FASE 1/3: Coletando URLs via Dorks (Engine Rotation)...{RST}")
         log.info("PHASE 1 START | Collecting URLs")
 
         dork_engine = DorkEngine(self.requester)
@@ -1631,7 +1655,6 @@ class GateHunter:
             print(f"  [{C}-{RST}] {fmt:10s} = {Y}{path}{RST} ({size:,} bytes)")
         print()
 
-        # Top sites confirmados
         if confirmed:
             print(f"  {G}TOP SITES CONFIRMADOS:{RST}")
             print(f"  {'─'*55}")
@@ -1640,7 +1663,6 @@ class GateHunter:
                 print(f"  {i:2d}. {C}{r['domain'][:35]}{RST} | {niche_str}")
             print()
 
-        # Categorias
         niches = {}
         for r in results:
             n = r.get("niche", "Outros")
@@ -1653,10 +1675,8 @@ class GateHunter:
             print()
 
         log.info(f"SCAN COMPLETE | gateway={gateway_key} | confirmed={len(confirmed)} | stores={len(stores)} | elapsed={elapsed}s")
-        log.info(f"LOG FILE | {os.path.join(OUTPUT_DIR if os.path.isdir(OUTPUT_DIR) else FALLBACK_OUTPUT, LOG_FILE)}")
 
     def run(self):
-        """Loop principal"""
         while True:
             self._print_banner()
             gateway_key = self._show_gateway_menu()
@@ -1666,7 +1686,6 @@ class GateHunter:
                 break
 
             niche_name, niche_terms = self._show_niche_menu()
-
             self._execute_scan(gateway_key, niche_name, niche_terms)
 
             print(f"  {M}{'='*60}{RST}")

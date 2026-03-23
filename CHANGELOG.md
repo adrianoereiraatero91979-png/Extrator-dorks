@@ -1,5 +1,25 @@
 # Changelog - GateHunter
 
+## v6.1.0 (2026-03-23) - Ambiguous Gateway + Anti False Positive
+
+### Problemas Corrigidos
+- **Falsos positivos com gateways ambiguas**: Sites como nuancielo.com.br (marca "Nuancielo"), giraofertas.com.br/el-cielo (perfume "El Cielo"), ldelinda.com.br/produtos-cielo (cosmeticos "Cielo") eram confirmados incorretamente como tendo a gateway Cielo
+- **Sites de plugins/modulos**: loja5.com.br que vende plugin de Cielo era confirmado como loja que USA Cielo
+- **Sites de cupons/desconto**: desconto.com.br passava pelo filtro
+- **Documentacao**: developercielo.github.io passava com score 13
+- **Dorks repetitivas**: Dorks 2-25 retornavam 0 URLs novas porque usavam a mesma engine
+
+### Novidades
+- **AMBIGUOUS_GATEWAYS**: Cielo, Stripe, Vindi, Iugu e Getnet agora exigem evidencia TECNICA forte (JS_SRC, IFRAME, FORM action para dominio da gateway). Texto mencionando o nome NAO confirma
+- **Engine Rotation**: Cada dork e enviada para uma engine diferente (Brave -> DDG -> Bing -> Brave) para evitar rate limit e maximizar resultados
+- **Backup Engine**: Se uma engine retorna menos de 3 resultados, automaticamente tenta outra
+- **Blacklist expandida**: 158 dominios bloqueados (era 96 na v6.0)
+- **Penalidade para plugins**: Titulos com "plugin", "modulo", "extensao" recebem -30 no score
+- **Store Score Threshold**: Aumentado de 8 para 12 para maior precisao
+- **Debug Log**: Salva corretamente em `/sdcard/nh_files/logs_gate_hunter.txt`
+
+---
+
 ## v6.0.0 (2026-03-23) - Multi-Engine + Niche Filter + Brave Search
 
 ### Novidades
@@ -12,17 +32,10 @@
 ### Correcoes
 - **Engine Brave**: substitui DDG (que retornava 202) pelo Brave Search que funciona consistentemente
 - **Parser Brave**: extrai URLs corretamente do HTML do Brave Search com filtro de dominios internos
-- **Filtro anti-falso-positivo**: blacklist expandida para 96+ dominios incluindo plataformas e-commerce (nuvemshop, tray, lojaintegrada, etc)
-- **Store Score refinado**: 16 sinais positivos (preco R$, carrinho, checkout, frete, CEP, estoque, variacao, parcelamento, etc) e 11 sinais negativos (docs, tutorial, blog, SDK, API, changelog, etc)
+- **Filtro anti-falso-positivo**: blacklist expandida para 96+ dominios incluindo plataformas e-commerce
+- **Store Score refinado**: 16 sinais positivos e 11 sinais negativos
 - **Gateway detection em 5 zonas**: script src, iframe, form action, links, texto contextual
 - **Dedup por dominio**: apenas 1 URL por dominio para evitar duplicatas
-- **Delay inteligente**: 4-8s entre buscas + 15s de espera em rate limit para evitar bloqueio
-
-### Engines de Busca
-- Brave Search (principal - melhor taxa de sucesso)
-- DuckDuckGo HTML (backup - funciona bem no NetHunter com IP direto)
-- Bing (complementar)
-- Google CSE API (opcional - 100 buscas/dia gratis)
 
 ---
 
