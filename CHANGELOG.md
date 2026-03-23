@@ -1,48 +1,62 @@
 # Changelog - GateHunter
 
-## v5.0.0 (2026-03-23) - Multi-Engine Revolution
-
-### Problemas Corrigidos
-- **Falsos positivos eliminados**: v4.0 retornava 34/38 sites como "SaaS/Software" (docs, blogs, suporte da gateway). Agora o filtro bloqueia 100% desses sites.
-- **Dorks reformuladas**: Dorks anteriores usavam múltiplos `intext:` que retornavam 0 resultados. Novas dorks são simples e abrangentes.
-- **DDG Lite 202**: DDG Lite retornava status 202 com proxy. Agora usa DDG HTML sem proxy (IP direto do celular).
-- **Google 0 URLs**: Google retornava 200 mas 0 URLs. Implementado parser com 4 padrões de extração + cookie de consent.
-- **Debug logs**: Agora salva corretamente em `/sdcard/nh_files/logs_gate_hunter.txt`.
+## v6.0.0 (2026-03-23) - Multi-Engine + Niche Filter + Brave Search
 
 ### Novidades
-- **Multi-Engine v5**: DDG HTML + Google.com.br + Bing + Google CSE API (opcional)
-- **Busca SEM proxy**: IP residencial do celular é mais confiável para buscas. Proxies usadas apenas para análise de sites.
-- **Blacklist massiva**: 152+ domínios bloqueados (gateways, redes sociais, dev, docs, notícias, comparadores, etc.)
-- **Store Score threshold reduzido**: De 8 para 6 para capturar mais lojas reais.
-- **Dorks simples**: 1 termo entre aspas + contexto de loja, sem múltiplos `intext:`.
-- **Dedup por domínio**: Apenas 1 URL por domínio para evitar repetição.
-- **Google CSE API**: Suporte opcional para Google Custom Search Engine API (100 queries/dia grátis).
+- **Brave Search** como engine principal (retorna 20+ URLs por dork, muito mais confiavel que DDG)
+- **Filtro por Nicho**: sub-menu para selecionar tipo de loja (Roupas, Eletronicos, Gift Card, Pet Shop, Joias, Cosmeticos, Suplementos, etc)
+- **15 nichos** disponiveis com termos de busca automaticos que expandem as dorks
+- **Dorks expandidas**: termos de nicho sao combinados com dorks base automaticamente (ex: "pagar.me loja comprar roupas")
+- **Debug log completo** salvo em `/sdcard/nh_files/logs_gate_hunter.txt` com timestamp, level, thread e detalhes
 
-### Melhorias Técnicas
-- Paginação em todos os engines (DDG página 2, Google start=10, Bing first=11,21)
-- Parser Google com 4 padrões: `/url?q=`, `data-href`, links com `data-`/`ping=`, `<cite>` tags
-- Gateway confirmation em 7 zonas: JS_SRC, IFRAME, FORM, LINK, INLINE_JS, META, TEXT
-- Store Validator com 16 sinais positivos e 11 sinais negativos
+### Correcoes
+- **Engine Brave**: substitui DDG (que retornava 202) pelo Brave Search que funciona consistentemente
+- **Parser Brave**: extrai URLs corretamente do HTML do Brave Search com filtro de dominios internos
+- **Filtro anti-falso-positivo**: blacklist expandida para 96+ dominios incluindo plataformas e-commerce (nuvemshop, tray, lojaintegrada, etc)
+- **Store Score refinado**: 16 sinais positivos (preco R$, carrinho, checkout, frete, CEP, estoque, variacao, parcelamento, etc) e 11 sinais negativos (docs, tutorial, blog, SDK, API, changelog, etc)
+- **Gateway detection em 5 zonas**: script src, iframe, form action, links, texto contextual
+- **Dedup por dominio**: apenas 1 URL por dominio para evitar duplicatas
+- **Delay inteligente**: 4-8s entre buscas + 15s de espera em rate limit para evitar bloqueio
+
+### Engines de Busca
+- Brave Search (principal - melhor taxa de sucesso)
+- DuckDuckGo HTML (backup - funciona bem no NetHunter com IP direto)
+- Bing (complementar)
+- Google CSE API (opcional - 100 buscas/dia gratis)
+
+---
+
+## v5.0.0 (2026-03-23) - Multi-Engine Revolution
+
+### Correcoes
+- Falsos positivos eliminados (v4 retornava 34/38 como SaaS/Software)
+- Dorks reformuladas sem operadores avancados
+- DDG Lite 202 corrigido (usa DDG HTML sem proxy)
+- Debug logs salvando em `/sdcard/nh_files/logs_gate_hunter.txt`
+
+### Novidades
+- Multi-Engine v5: DDG HTML + Google + Bing + Google CSE API
+- Busca SEM proxy (IP direto do celular)
+- Blacklist massiva: 152+ dominios
+- Google CSE API suporte opcional
 
 ---
 
 ## v4.0.0 (2026-03-23) - 3-Layer Validation
 
 ### Novidades
-- Dorks por assinatura JS em vez de nome da gateway
-- Blacklist massiva de domínios
-- Validação em 3 camadas (URL Filter + Gateway Confirmation + Store Validator)
-- Debug logs em `/sdcard/nh_files/logs_gate_hunter.txt`
-- Deduplicação por domínio
+- Dorks por assinatura JS
+- Blacklist massiva de dominios
+- Validacao em 3 camadas
+- Debug logs
 
 ---
 
 ## v2.0.0 (2026-03-23) - Initial Release
 
 ### Funcionalidades
-- Menu interativo com 15 gateways de pagamento
-- Multi-engine: DuckDuckGo + Google + Bing
-- curl_cffi com TLS fingerprint impersonate
-- Proxy rotator com multi-gateway
-- Relatórios em TXT, JSON e URLs
-- Classificação de sites por categoria
+- Menu interativo com 15 gateways
+- Multi-engine: DDG + Google + Bing
+- curl_cffi com TLS impersonate
+- Proxy rotator
+- Relatorios TXT, JSON e URLs

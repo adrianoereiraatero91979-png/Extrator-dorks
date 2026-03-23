@@ -1,389 +1,445 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-╔══════════════════════════════════════════════════════════════════╗
-║              GATEHUNTER v5.0 - NETHUNTER SUPREME EDITION         ║
-║         Advanced Payment Gateway OSINT & Store Finder            ║
-║                   Kali NetHunter Optimized                       ║
-╚══════════════════════════════════════════════════════════════════╝
-
-v5.0 - Multi-engine (DDG HTML + Google.com.br + Bing + Google CSE API)
-       Dorks simples e abrangentes + Busca SEM proxy + Validação 3 camadas
-       Debug logs completo em /sdcard/nh_files/logs_gate_hunter.txt
-Uso educacional e autorizado apenas.
+╔══════════════════════════════════════════════════════════════╗
+║  GATEHUNTER v6.0.0 - NETHUNTER SUPREME EDITION              ║
+║  Payment Gateway OSINT - Multi-Engine Dork Scanner           ║
+║  Brave Search + DDG + Bing + Google CSE API                  ║
+║  3-Layer Validation + Niche Filter + Debug Logging           ║
+╚══════════════════════════════════════════════════════════════╝
 """
 
-import os, sys, re, json, time, random, signal, threading
-import urllib.parse, urllib.request, ssl, logging, traceback
+import os
+import sys
+import re
+import json
+import time
+import random
+import hashlib
+import urllib.request
+import urllib.parse
+import traceback
+import threading
 from datetime import datetime
-from pathlib import Path
+from typing import Dict, List, Optional, Set, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Optional, List, Dict, Tuple, Any, Set
-import warnings
-warnings.filterwarnings("ignore")
 
+VERSION = "6.0.0"
+
+# ══════════════════════════════════════════════════════════════════
+#                     CONFIGURACAO
+# ══════════════════════════════════════════════════════════════════
+
+OUTPUT_DIR = "/sdcard/nh_files"
+FALLBACK_OUTPUT = os.path.expanduser("~/gatehunter_output")
+LOG_FILE = "logs_gate_hunter.txt"
+PROXY_FILE_PATHS = ["/sdcard/nh_files/proxies.txt", "proxies.txt"]
+
+MAX_THREADS = 15
+REQUEST_TIMEOUT = 20
+STORE_SCORE_THRESHOLD = 8
+SEARCH_DELAY_MIN = 4
+SEARCH_DELAY_MAX = 8
+
+# Google Custom Search Engine (opcional - 100 buscas/dia gratis)
+GOOGLE_CSE_API_KEY = os.environ.get("GOOGLE_CSE_API_KEY", "")
+GOOGLE_CSE_CX = os.environ.get("GOOGLE_CSE_CX", "")
+
+# curl_cffi (melhor TLS fingerprint)
+CFFI_OK = False
 try:
     from curl_cffi import requests as cffi_requests
     CFFI_OK = True
 except ImportError:
-    CFFI_OK = False
-
-try:
-    from fake_useragent import UserAgent
-    UA_GEN = UserAgent(browsers=["chrome", "edge"], os=["windows", "macos"])
-except Exception:
-    UA_GEN = None
-
-# ── Cores ANSI ────────────────────────────────────────────────
-R = "\033[1;31m"; G = "\033[1;32m"; Y = "\033[1;33m"; B = "\033[1;34m"
-M = "\033[1;35m"; C = "\033[1;36m"; W = "\033[1;37m"; D = "\033[0;37m"
-BOLD = "\033[1m"; RST = "\033[0m"
+    pass
 
 # ══════════════════════════════════════════════════════════════════
-#                     CONSTANTES & CONFIG
+#                       CORES ANSI
 # ══════════════════════════════════════════════════════════════════
 
-VERSION = "5.0.0"
-OUTPUT_DIR = "/sdcard/nh_files"
-FALLBACK_OUTPUT = os.path.expanduser("~/gatehunter_output")
-LOG_PATH = os.path.join(OUTPUT_DIR, "logs_gate_hunter.txt")
-LOG_PATH_FALLBACK = os.path.join(FALLBACK_OUTPUT, "logs_gate_hunter.txt")
-PROXIES_PATH_DEFAULT = os.path.join(OUTPUT_DIR, "proxies.txt")
-PROXIES_PATH_FALLBACK = os.path.join(os.path.dirname(os.path.abspath(__file__)), "proxies.txt")
+R = "\033[91m"    # Red
+G = "\033[92m"    # Green
+Y = "\033[93m"    # Yellow
+B = "\033[94m"    # Blue
+M = "\033[95m"    # Magenta
+C = "\033[96m"    # Cyan
+W = "\033[97m"    # White
+D = "\033[90m"    # Dark/Gray
+RST = "\033[0m"   # Reset
+BOLD = "\033[1m"
 
-# Google CSE API (opcional - usuário pode configurar)
-GOOGLE_CSE_API_KEY = os.environ.get("GOOGLE_CSE_API_KEY", "")
-GOOGLE_CSE_CX = os.environ.get("GOOGLE_CSE_CX", "")
-
-MAX_THREADS = 12
-REQUEST_TIMEOUT = 20
-MAX_RETRIES = 3
-SEARCH_DELAY_MIN = 3.0
-SEARCH_DELAY_MAX = 6.0
-STORE_SCORE_THRESHOLD = 6
-
-IMPERSONATE_TARGETS = [
-    "chrome120", "chrome119", "chrome116", "chrome110",
-    "edge101", "safari15_5", "safari17_0",
-]
+# ══════════════════════════════════════════════════════════════════
+#                    USER AGENTS PREMIUM
+# ══════════════════════════════════════════════════════════════════
 
 PREMIUM_USER_AGENTS = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:123.0) Gecko/20100101 Firefox/123.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.3 Safari/605.1.15",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0",
 ]
 
 # ══════════════════════════════════════════════════════════════════
-#                 BLACKLIST MASSIVA DE DOMÍNIOS
+#                    NICHOS / CATEGORIAS
 # ══════════════════════════════════════════════════════════════════
 
-DOMAIN_BLACKLIST = {
-    # Redes sociais / mídia
-    "youtube.com", "facebook.com", "instagram.com", "twitter.com", "x.com",
-    "linkedin.com", "tiktok.com", "pinterest.com", "reddit.com", "quora.com",
-    "medium.com", "tumblr.com", "whatsapp.com", "telegram.org", "discord.com",
-    # Buscadores
-    "google.com", "google.com.br", "bing.com", "yahoo.com", "duckduckgo.com",
-    "baidu.com", "yandex.com", "startpage.com",
-    # Dev / Code
-    "github.com", "gitlab.com", "bitbucket.org", "stackoverflow.com",
-    "stackexchange.com", "npmjs.com", "pypi.org", "packagist.org",
-    "codepen.io", "jsfiddle.net", "replit.com", "dev.to", "hashnode.com",
-    # Docs / Wiki
-    "wikipedia.org", "wikimedia.org", "w3schools.com", "mdn.mozilla.org",
-    "docs.python.org", "readthedocs.io", "readme.io", "gitbook.io",
-    # Reclamação / Review
-    "reclameaqui.com.br", "trustpilot.com", "glassdoor.com", "indeed.com",
-    "consumidor.gov.br", "procon.sp.gov.br",
-    # Notícias / Mídia
-    "globo.com", "uol.com.br", "folha.uol.com.br", "estadao.com.br",
-    "terra.com.br", "ig.com.br", "r7.com", "bbc.com", "cnn.com",
-    "forbes.com", "bloomberg.com", "reuters.com", "techcrunch.com",
-    # Governo
-    "gov.br", "gov.com", "senado.leg.br", "camara.leg.br",
-    # Educação
-    "edu.br", "coursera.org", "udemy.com", "edx.org",
-    # Plataformas de e-commerce (são plataformas, não lojas)
-    "nuvemshop.com.br", "tray.com.br", "loja-integrada.com.br",
-    "lojaintegrada.com.br", "vtex.com", "shopify.com",
-    "wix.com", "wordpress.com", "wordpress.org", "squarespace.com",
-    # Gateways (o próprio site da gateway)
-    "asaas.com", "pagar.me", "pagarme.com.br", "stone.com.br",
-    "cielo.com.br", "userede.com.br", "rede.com.br",
-    "mercadopago.com.br", "mercadolivre.com.br",
-    "paypal.com", "stripe.com", "pagseguro.uol.com.br", "pagseguro.com.br",
-    "getnet.com.br", "iugu.com", "vindi.com.br", "vindi-dev.com",
-    "hotmart.com", "eduzz.com", "kiwify.com.br", "appmax.com.br",
-    "payflow.com", "checkout.com",
-    # Ferramentas / SaaS
-    "hubspot.com", "salesforce.com", "zendesk.com", "intercom.com",
-    "mailchimp.com", "sendgrid.com", "twilio.com", "cloudflare.com",
-    "aws.amazon.com", "azure.microsoft.com", "cloud.google.com",
-    "heroku.com", "vercel.com", "netlify.com", "digitalocean.com",
-    # Comparadores / Afiliados
-    "b2bstack.com.br", "capterra.com.br", "g2.com", "trustradius.com",
-    "comparaja.com.br", "buscape.com.br", "zoom.com.br",
-    # Outros
-    "play.google.com", "apps.apple.com", "chrome.google.com",
-    "archive.org", "web.archive.org", "slideshare.net",
-    "scribd.com", "issuu.com", "academia.edu",
-    "pluga.co", "zapier.com", "ifttt.com", "n8n.io",
-    "nfe.io", "jivochat.com.br", "rdstation.com",
-    "v4company.com", "resultadosdigitais.com.br", "rockcontent.com",
-    "sebrae.com.br", "endeavor.org.br",
-    "fintech.global", "crunchbase.com", "pitchbook.com",
-    "investidores.com.br", "infomoney.com.br",
-}
-
-INFORMATIONAL_SUBDOMAINS = {
-    "docs.", "doc.", "blog.", "help.", "support.", "suporte.",
-    "api.", "developer.", "developers.", "dev.", "status.",
-    "community.", "forum.", "faq.", "kb.", "wiki.",
-    "learn.", "academy.", "training.", "tutorial.",
-    "atendimento.", "central.", "materiais.", "conteudo.",
-    "portal.", "admin.", "dashboard.", "app.", "cdn.",
-    "mail.", "email.", "smtp.", "ftp.", "git.",
-}
-
-BAD_PATH_PATTERNS = {
-    "/blog", "/docs", "/doc/", "/help", "/support", "/suporte",
-    "/api/", "/developer", "/tutorial", "/academy",
-    "/about", "/sobre", "/pricing", "/precos", "/contato",
-    "/terms", "/privacy", "/legal", "/changelog",
-    "/careers", "/vagas", "/trabalhe-conosco",
-    "/press", "/imprensa", "/newsroom",
-    "/partner", "/parceiro", "/afiliado",
-    "/case", "/cases", "/depoimento",
+NICHOS = {
+    "Todos": {"terms": [], "desc": "Buscar todos os tipos de loja"},
+    "Roupas / Moda": {"terms": ["roupas", "moda", "camiseta", "vestido", "loja de roupas"], "desc": "Lojas de roupas e moda"},
+    "Calcados / Tenis": {"terms": ["tenis", "sapato", "calcados", "sneaker", "loja de tenis"], "desc": "Lojas de calcados"},
+    "Eletronicos": {"terms": ["eletronicos", "celular", "notebook", "tecnologia", "smartphone"], "desc": "Lojas de eletronicos"},
+    "Gift Card": {"terms": ["gift card", "cartao presente", "vale presente", "giftcard"], "desc": "Sites de gift card"},
+    "Joias / Relogios": {"terms": ["joias", "relogio", "anel", "colar", "brinco", "pulseira"], "desc": "Joalherias online"},
+    "Cosmeticos / Beleza": {"terms": ["cosmeticos", "maquiagem", "perfume", "beleza", "skincare"], "desc": "Lojas de beleza"},
+    "Suplementos / Saude": {"terms": ["suplemento", "whey", "vitamina", "saude", "fitness"], "desc": "Lojas de suplementos"},
+    "Pet Shop": {"terms": ["pet shop", "racao", "cachorro", "gato", "pet"], "desc": "Pet shops online"},
+    "Casa / Decoracao": {"terms": ["decoracao", "moveis", "casa", "cama mesa banho"], "desc": "Lojas de casa e decoracao"},
+    "Alimentos / Bebidas": {"terms": ["alimentos", "bebidas", "cafe", "vinho", "gourmet"], "desc": "Lojas de alimentos"},
+    "Esportes": {"terms": ["esportes", "academia", "fitness", "corrida", "futebol"], "desc": "Lojas de artigos esportivos"},
+    "Infantil / Brinquedos": {"terms": ["brinquedo", "infantil", "crianca", "bebe", "kids"], "desc": "Lojas infantis"},
+    "Cursos / Digital": {"terms": ["curso online", "ebook", "infoproduto", "mentoria"], "desc": "Produtos digitais"},
+    "Assinatura / Recorrente": {"terms": ["assinatura", "clube", "box mensal", "plano mensal"], "desc": "Servicos de assinatura"},
 }
 
 # ══════════════════════════════════════════════════════════════════
-#              GATEWAYS - DORKS SIMPLES E ABRANGENTES
+#                    GATEWAYS DE PAGAMENTO
 # ══════════════════════════════════════════════════════════════════
-# REGRA: dorks simples, sem múltiplos intext:, focadas em contexto de loja
 
 GATEWAYS = {
     "Asaas": {
-        "desc": "Asaas - Plataforma de cobranças e pagamentos",
-        "signatures": ["asaas.com", "js.asaas.com", "checkout.asaas.com", "api.asaas.com"],
+        "desc": "Asaas - Plataforma de cobrancas e pagamentos",
+        "signatures": ["asaas.com", "asaas", "api.asaas", "cdn.asaas"],
         "dorks": [
-            '"asaas" comprar produto loja -site:asaas.com',
-            '"asaas" carrinho pagamento -site:asaas.com -site:github.com',
-            '"asaas" ecommerce loja virtual -site:asaas.com -blog',
-            '"checkout.asaas" loja -site:asaas.com',
-            '"asaas" "adicionar ao carrinho" -site:asaas.com',
-            '"asaas" "finalizar compra" -site:asaas.com',
-            '"pagamento" "asaas" loja online site:com.br -site:asaas.com',
-            '"asaas" woocommerce loja -site:github.com -site:wordpress.org',
+            '"asaas" formas de pagamento loja',
+            '"asaas.com" pagamento loja online',
+            '"asaas" checkout comprar produto',
+            '"asaas" loja virtual pagamento',
+            '"asaas" pix boleto cartao loja',
+            '"asaas" ecommerce pagamento',
+            'pagamento asaas loja comprar',
+            '"asaas" carrinho finalizar compra',
+            'formas pagamento asaas produto',
+            '"asaas" pagar pedido loja',
+            '"asaas" loja online frete',
+            '"asaas" pagamento seguro comprar',
+            'aceita asaas loja virtual',
+            '"asaas" cobranca loja produto',
+            '"asaas" pagamento recorrente assinatura',
         ],
     },
     "PagarMe": {
         "desc": "Pagar.me (Stone) - Gateway de pagamentos",
-        "signatures": ["pagar.me", "api.pagar.me", "js.pagar.me", "pagarme"],
+        "signatures": ["pagar.me", "pagarme", "api.pagar.me", "checkout.pagar.me"],
         "dorks": [
-            '"pagar.me" comprar loja online -site:pagar.me -site:stone.com.br',
-            '"pagarme" carrinho pagamento -site:pagar.me -site:github.com',
-            '"pagar.me" ecommerce produto -site:pagar.me -blog',
-            '"pagar.me" "finalizar compra" -site:pagar.me',
-            '"pagar.me" "adicionar ao carrinho" -site:pagar.me',
-            '"pagarme" checkout loja virtual -site:pagar.me -site:stone.com.br',
-            '"pagar.me" woocommerce loja -site:github.com',
-            '"pagar.me" nuvemshop loja -site:pagar.me',
+            '"pagar.me" formas de pagamento loja',
+            '"pagar.me" loja online comprar',
+            '"pagar.me" checkout pagamento',
+            '"checkout.pagar.me" comprar',
+            '"pagar.me" carrinho produto comprar',
+            '"pagar.me" loja virtual ecommerce',
+            '"pagar.me" pix boleto cartao loja',
+            'pagamento pagar.me loja online',
+            '"pagar.me" finalizar compra pedido',
+            '"pagar.me" frete entrega produto',
+            '"pagarme" loja comprar produto',
+            '"pagar.me" pagamento seguro loja',
+            'formas pagamento pagarme loja virtual',
+            '"pagar.me" parcelamento comprar',
+            '"pagar.me" loja roupas comprar',
         ],
     },
-    "Erede": {
-        "desc": "eRede (Itaú) - Adquirente e gateway",
-        "signatures": ["userede.com.br", "e.rede.com.br", "erede"],
+    "eRede": {
+        "desc": "eRede (Itau) - Adquirente e gateway",
+        "signatures": ["userede.com.br", "e.rede.com.br", "erede", "userede"],
         "dorks": [
-            '"erede" comprar loja online -site:userede.com.br -site:rede.com.br',
-            '"userede" pagamento ecommerce -site:userede.com.br',
-            '"e-rede" checkout loja -site:rede.com.br',
-            '"erede" "finalizar compra" -site:userede.com.br',
-            '"erede" woocommerce loja -site:github.com',
-            '"erede" loja virtual produto -site:rede.com.br -blog',
+            '"erede" formas de pagamento loja',
+            '"userede" pagamento loja online',
+            '"e.rede" checkout comprar',
+            '"erede" loja virtual pagamento cartao',
+            '"userede" ecommerce pagamento',
+            'pagamento erede loja comprar',
+            '"erede" pix cartao loja online',
+            '"userede" carrinho comprar produto',
+            '"erede" pagamento seguro loja',
+            'formas pagamento erede loja virtual',
         ],
     },
     "PayFlow": {
         "desc": "PayFlow - Gateway de pagamentos digital",
         "signatures": ["payflow.com.br", "payflow", "api.payflow"],
         "dorks": [
-            '"payflow" comprar loja online pagamento',
-            '"payflow" checkout ecommerce produto',
-            '"payflow" "finalizar compra" loja',
-            '"payflow" carrinho pagamento loja virtual',
+            '"payflow" formas de pagamento loja',
+            '"payflow" pagamento loja online',
+            '"payflow" checkout comprar produto',
+            '"payflow" loja virtual ecommerce',
+            '"payflow" pix boleto cartao loja',
+            'pagamento payflow loja comprar',
+            '"payflow" carrinho finalizar compra',
+            '"payflow" pagamento seguro loja',
         ],
     },
     "AppMax": {
         "desc": "AppMax - Plataforma de vendas e pagamentos",
-        "signatures": ["appmax.com.br", "api.appmax", "appmax"],
+        "signatures": ["appmax.com.br", "appmax", "api.appmax"],
         "dorks": [
-            '"appmax" comprar loja online -site:appmax.com.br',
-            '"appmax" checkout pagamento -site:appmax.com.br',
-            '"appmax" ecommerce produto -site:appmax.com.br -blog',
-            '"appmax" "finalizar compra" -site:appmax.com.br',
-            '"appmax" loja virtual carrinho -site:appmax.com.br',
+            '"appmax" formas de pagamento loja',
+            '"appmax" pagamento loja online',
+            '"appmax" checkout comprar produto',
+            '"appmax" loja virtual ecommerce',
+            '"appmax" pix boleto cartao loja',
+            'pagamento appmax loja comprar',
+            '"appmax" carrinho finalizar compra',
+            '"appmax" pagamento seguro loja',
         ],
     },
     "MercadoPago": {
         "desc": "Mercado Pago - Gateway e carteira digital",
-        "signatures": ["mercadopago.com", "api.mercadopago.com", "sdk.mercadopago"],
+        "signatures": ["mercadopago.com", "mercadopago", "mp.com", "mercadolivre"],
         "dorks": [
-            '"mercado pago" comprar loja online -site:mercadolivre.com.br -site:mercadopago.com.br',
-            '"mercadopago" checkout loja -site:mercadolivre.com.br',
-            '"mercado pago" ecommerce produto -site:mercadopago.com.br -blog',
-            '"mercado pago" "finalizar compra" loja -site:mercadolivre.com.br',
-            '"mercado pago" carrinho loja virtual -site:mercadopago.com.br',
-            '"mercadopago" woocommerce loja -site:github.com',
+            '"mercado pago" formas de pagamento loja',
+            '"mercadopago" checkout comprar',
+            '"mercado pago" loja online pagamento',
+            '"mercado pago" carrinho comprar produto',
+            '"mercadopago" loja virtual ecommerce',
+            '"mercado pago" pix boleto cartao loja',
+            'pagamento mercado pago loja comprar',
+            '"mercado pago" parcelamento loja',
+            '"mercado pago" frete entrega comprar',
+            '"mercado pago" pagamento seguro loja',
         ],
     },
     "PagSeguro": {
         "desc": "PagSeguro/PagBank - Gateway de pagamentos",
-        "signatures": ["pagseguro.uol.com.br", "api.pagseguro", "stc.pagseguro"],
+        "signatures": ["pagseguro.uol.com.br", "pagseguro", "pagbank", "pagseguro.com"],
         "dorks": [
-            '"pagseguro" comprar loja online -site:pagseguro.uol.com.br',
-            '"pagseguro" checkout ecommerce -site:pagseguro.com.br -blog',
-            '"pagseguro" "finalizar compra" loja -site:pagseguro.uol.com.br',
-            '"pagseguro" carrinho produto -site:pagseguro.com.br',
-            '"pagbank" loja online comprar -site:pagseguro.uol.com.br',
-            '"pagseguro" woocommerce loja -site:github.com',
+            '"pagseguro" formas de pagamento loja',
+            '"pagseguro" loja online comprar',
+            '"pagseguro" checkout pagamento',
+            '"pagbank" loja virtual comprar',
+            '"pagseguro" carrinho produto comprar',
+            '"pagseguro" pix boleto cartao loja',
+            'pagamento pagseguro loja online',
+            '"pagseguro" parcelamento comprar',
+            '"pagseguro" pagamento seguro loja',
+            '"pagbank" ecommerce pagamento loja',
         ],
     },
     "Cielo": {
         "desc": "Cielo - Maior adquirente do Brasil",
-        "signatures": ["cielo.com.br", "api.cielo", "api2.cielo", "cieloecommerce"],
+        "signatures": ["cielo.com.br", "cieloecommerce", "cielo", "api.cielo"],
         "dorks": [
-            '"cielo" comprar loja online -site:cielo.com.br',
-            '"cielo" checkout ecommerce produto -site:cielo.com.br -blog',
-            '"cielo" "finalizar compra" loja -site:cielo.com.br',
-            '"cieloecommerce" loja -site:cielo.com.br',
-            '"cielo" carrinho pagamento loja virtual -site:cielo.com.br',
-            '"cielo" woocommerce loja -site:github.com',
+            '"cielo" formas de pagamento loja',
+            '"cielo" loja online comprar',
+            '"cielo" checkout pagamento',
+            '"cielo" loja virtual ecommerce',
+            '"cielo" carrinho produto comprar',
+            '"cielo" pix boleto cartao loja',
+            'pagamento cielo loja online',
+            '"cielo" parcelamento comprar',
+            '"cielo" pagamento seguro loja',
+            '"cielo" ecommerce pagamento loja',
         ],
     },
     "Stripe": {
         "desc": "Stripe - Gateway global de pagamentos",
-        "signatures": ["stripe.com", "js.stripe.com", "api.stripe.com", "checkout.stripe"],
+        "signatures": ["stripe.com", "js.stripe.com", "stripe", "checkout.stripe"],
         "dorks": [
-            '"stripe" comprar loja online brasil -site:stripe.com',
-            '"stripe" checkout ecommerce -site:stripe.com -site:github.com',
-            '"stripe" "finalizar compra" loja -site:stripe.com',
-            '"js.stripe.com" loja -site:stripe.com -site:github.com',
-            '"stripe" carrinho produto loja -site:stripe.com -blog',
+            '"stripe" formas de pagamento loja brasil',
+            '"stripe" loja online comprar brasil',
+            '"stripe" checkout pagamento loja',
+            '"js.stripe.com" loja comprar',
+            '"stripe" ecommerce pagamento brasil',
+            'pagamento stripe loja online brasil',
+            '"stripe" carrinho comprar produto',
+            '"stripe" pagamento seguro loja',
         ],
     },
     "Hotmart": {
         "desc": "Hotmart - Plataforma de produtos digitais",
-        "signatures": ["hotmart.com", "pay.hotmart.com", "api.hotmart"],
+        "signatures": ["hotmart.com", "pay.hotmart", "hotmart"],
         "dorks": [
-            '"hotmart" comprar curso online -site:hotmart.com',
-            '"hotmart" checkout pagamento -site:hotmart.com -blog',
-            '"pay.hotmart" produto -site:hotmart.com',
-            '"hotmart" "comprar agora" -site:hotmart.com',
-            '"hotmart" plataforma venda -site:hotmart.com -site:github.com',
+            '"hotmart" comprar curso online',
+            '"pay.hotmart" checkout comprar',
+            '"hotmart" pagamento produto digital',
+            '"hotmart" curso comprar agora',
+            '"hotmart" ebook comprar',
+            '"hotmart" mentoria comprar',
+            'comprar hotmart produto digital',
+            '"hotmart" pagamento pix boleto',
         ],
     },
     "Eduzz": {
         "desc": "Eduzz - Plataforma de infoprodutos",
-        "signatures": ["eduzz.com", "api.eduzz.com", "checkout.eduzz"],
+        "signatures": ["eduzz.com", "eduzz", "sun.eduzz"],
         "dorks": [
-            '"eduzz" comprar curso -site:eduzz.com',
-            '"eduzz" checkout pagamento -site:eduzz.com -blog',
-            '"eduzz" "comprar agora" produto -site:eduzz.com',
-            '"eduzz" plataforma venda online -site:eduzz.com',
+            '"eduzz" comprar curso online',
+            '"eduzz" pagamento produto digital',
+            '"eduzz" checkout comprar',
+            '"eduzz" curso comprar agora',
+            '"eduzz" ebook comprar',
+            'comprar eduzz produto digital',
+            '"eduzz" pagamento pix boleto',
+            '"sun.eduzz" comprar',
         ],
     },
     "Kiwify": {
         "desc": "Kiwify - Plataforma de vendas digitais",
-        "signatures": ["kiwify.com.br", "pay.kiwify", "api.kiwify"],
+        "signatures": ["kiwify.com.br", "kiwify", "pay.kiwify"],
         "dorks": [
-            '"kiwify" comprar curso -site:kiwify.com.br',
-            '"kiwify" checkout pagamento -site:kiwify.com.br',
-            '"kiwify" "comprar agora" -site:kiwify.com.br',
-            '"kiwify" produto digital venda -site:kiwify.com.br -blog',
+            '"kiwify" comprar curso online',
+            '"kiwify" pagamento produto digital',
+            '"kiwify" checkout comprar',
+            '"pay.kiwify" comprar',
+            '"kiwify" curso comprar agora',
+            'comprar kiwify produto digital',
+            '"kiwify" pagamento pix boleto',
+            '"kiwify" ebook mentoria comprar',
         ],
     },
     "Vindi": {
         "desc": "Vindi - Plataforma de pagamentos recorrentes",
-        "signatures": ["vindi.com.br", "api.vindi.com.br", "app.vindi"],
+        "signatures": ["vindi.com.br", "vindi", "api.vindi", "app.vindi"],
         "dorks": [
-            '"vindi" pagamento recorrente loja -site:vindi.com.br',
-            '"vindi" assinatura plano -site:vindi.com.br -blog',
-            '"vindi" checkout pagamento -site:vindi.com.br',
-            '"vindi" cobranca recorrente -site:vindi.com.br -site:github.com',
-            '"vindi" plataforma pagamento -site:vindi.com.br -tutorial',
+            '"vindi" formas de pagamento loja',
+            '"vindi" pagamento recorrente assinatura',
+            '"vindi" checkout comprar',
+            '"vindi" loja online pagamento',
+            '"vindi" assinatura plano mensal',
+            'pagamento vindi loja comprar',
+            '"vindi" cobranca recorrente loja',
+            '"vindi" pagamento seguro loja',
         ],
     },
     "Iugu": {
         "desc": "Iugu - Gateway e plataforma financeira",
-        "signatures": ["iugu.com", "api.iugu.com", "js.iugu.com"],
+        "signatures": ["iugu.com", "iugu", "api.iugu", "faturas.iugu"],
         "dorks": [
-            '"iugu" comprar loja online -site:iugu.com',
-            '"iugu" checkout pagamento -site:iugu.com -blog',
-            '"iugu" ecommerce produto -site:iugu.com',
-            '"iugu" "finalizar compra" -site:iugu.com',
-            '"js.iugu.com" loja -site:iugu.com -site:github.com',
+            '"iugu" formas de pagamento loja',
+            '"iugu" pagamento loja online',
+            '"iugu" checkout comprar',
+            '"iugu" loja virtual ecommerce',
+            '"iugu" pix boleto cartao loja',
+            'pagamento iugu loja comprar',
+            '"iugu" cobranca loja online',
+            '"iugu" pagamento seguro loja',
         ],
     },
     "Getnet": {
         "desc": "Getnet (Santander) - Adquirente e gateway",
-        "signatures": ["getnet.com.br", "api.getnet", "checkout.getnet"],
+        "signatures": ["getnet.com.br", "getnet", "api.getnet"],
         "dorks": [
-            '"getnet" comprar loja online -site:getnet.com.br',
-            '"getnet" checkout ecommerce -site:getnet.com.br -blog',
-            '"getnet" pagamento loja virtual -site:getnet.com.br',
-            '"getnet" "finalizar compra" -site:getnet.com.br',
-            '"getnet" woocommerce loja -site:github.com',
+            '"getnet" formas de pagamento loja',
+            '"getnet" pagamento loja online',
+            '"getnet" checkout comprar',
+            '"getnet" loja virtual ecommerce',
+            '"getnet" pix cartao loja',
+            'pagamento getnet loja comprar',
+            '"getnet" pagamento seguro loja',
+            '"getnet" ecommerce pagamento',
         ],
     },
 }
 
 # ══════════════════════════════════════════════════════════════════
-#                      DEBUG LOGGER
+#                    DOMAIN BLACKLIST
+# ══════════════════════════════════════════════════════════════════
+
+DOMAIN_BLACKLIST = {
+    # Proprias gateways
+    "asaas.com", "pagar.me", "pagarme.com.br", "userede.com.br", "rede.com.br",
+    "payflow.com.br", "appmax.com.br", "mercadopago.com", "mercadopago.com.br",
+    "pagseguro.uol.com.br", "pagseguro.com", "pagbank.com.br", "cielo.com.br",
+    "stripe.com", "hotmart.com", "eduzz.com", "kiwify.com.br", "vindi.com.br",
+    "iugu.com", "getnet.com.br", "stone.com.br", "mundipagg.com",
+    # Plataformas e-commerce (docs/ajuda)
+    "nuvemshop.com.br", "tray.com.br", "lojaintegrada.com.br", "vtex.com",
+    "shopify.com", "woocommerce.com", "magento.com", "yampi.com.br",
+    "cartpanda.com", "wbuy.com.br", "toplojas.com.br", "bwcommerce.com.br",
+    "moblix.com.br", "bagy.com.br", "loja.com.br",
+    # Redes sociais e conteudo
+    "youtube.com", "facebook.com", "instagram.com", "twitter.com", "x.com",
+    "linkedin.com", "tiktok.com", "pinterest.com", "reddit.com",
+    # Repositorios e dev
+    "github.com", "gitlab.com", "bitbucket.org", "stackoverflow.com",
+    "npmjs.com", "packagist.org", "pypi.org", "codesandbox.io",
+    # Blogs e noticias
+    "medium.com", "wordpress.com", "blogspot.com", "tumblr.com",
+    "enotas.com.br", "digitalmanager.guru", "resultadosdigitais.com.br",
+    "rockcontent.com", "neilpatel.com", "hubspot.com", "digitei.com",
+    # Comparadores e reviews
+    "reclameaqui.com.br", "trustpilot.com", "g2.com", "capterra.com",
+    "b2bstack.com.br", "comparatec.com.br",
+    # Educacao e docs
+    "wikipedia.org", "wikimedia.org", "docs.google.com", "drive.google.com",
+    # Governo e institucional
+    "gov.br", "bcb.gov.br", "receita.fazenda.gov.br",
+    # Outros
+    "google.com", "google.com.br", "bing.com", "yahoo.com", "duckduckgo.com",
+    "brave.com", "amazon.com", "amazon.com.br", "mercadolivre.com.br",
+    "olx.com.br", "magazineluiza.com.br", "americanas.com.br",
+    "albato.com", "zapier.com", "make.com", "n8n.io",
+    "community.shopify.com", "wordpress.org",
+}
+
+INFORMATIONAL_SUBDOMAINS = [
+    "docs.", "doc.", "blog.", "help.", "support.", "suporte.", "ajuda.",
+    "api.", "developer.", "dev.", "status.", "central.", "atendimento.",
+    "basedeconhecimento.", "kb.", "wiki.", "faq.", "forum.",
+    "community.", "comunidade.", "learn.", "academy.",
+]
+
+BAD_PATH_PATTERNS = [
+    "/blog/", "/blog?", "/docs/", "/doc/", "/api/", "/developer/",
+    "/help/", "/support/", "/suporte/", "/ajuda/", "/tutorial/",
+    "/artigo/", "/article/", "/como-", "/how-to", "/changelog",
+    "/status/", "/pricing/", "/planos/", "/careers/", "/vagas/",
+    "/about/", "/sobre/", "/press/", "/imprensa/", "/parceiros/",
+    "/integracoes/", "/integrations/", "/plugins/", "/apps/",
+    "/connect/", "/marketplace/",
+]
+
+# ══════════════════════════════════════════════════════════════════
+#                    DEBUG LOGGER
 # ══════════════════════════════════════════════════════════════════
 
 class DebugLogger:
     def __init__(self):
         self.log_path = None
-        self.logger = logging.getLogger("GateHunter")
-        self.logger.setLevel(logging.DEBUG)
-        self.logger.handlers.clear()
-        formatter = logging.Formatter(
-            "%(asctime)s | %(levelname)-8s | %(threadName)-12s | %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S"
-        )
-        console_handler = logging.StreamHandler(sys.stderr)
-        console_handler.setLevel(logging.WARNING)
-        console_handler.setFormatter(formatter)
-        self.logger.addHandler(console_handler)
-        for path in [LOG_PATH, LOG_PATH_FALLBACK]:
-            try:
-                os.makedirs(os.path.dirname(path), exist_ok=True)
-                file_handler = logging.FileHandler(path, mode="a", encoding="utf-8")
-                file_handler.setLevel(logging.DEBUG)
-                file_handler.setFormatter(formatter)
-                self.logger.addHandler(file_handler)
-                self.log_path = path
-                break
-            except Exception:
-                continue
-
-    def info(self, msg): self.logger.info(msg)
-    def debug(self, msg): self.logger.debug(msg)
-    def warning(self, msg): self.logger.warning(msg)
-    def error(self, msg): self.logger.error(msg)
+        self._lock = threading.Lock()
 
     def start_session(self):
-        self.info("=" * 80)
-        self.info(f"GATEHUNTER v{VERSION} - DEBUG LOG INICIADO")
-        self.info(f"Data: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        self.info(f"Log path: {self.log_path}")
-        self.info(f"Python: {sys.version}")
-        self.info(f"Platform: {sys.platform}")
-        self.info(f"curl_cffi: {CFFI_OK}")
-        self.info(f"Google CSE API: {'Configurada' if GOOGLE_CSE_API_KEY else 'Nao configurada'}")
-        self.info("=" * 80)
+        output = OUTPUT_DIR if os.path.isdir(OUTPUT_DIR) else FALLBACK_OUTPUT
+        os.makedirs(output, exist_ok=True)
+        self.log_path = os.path.join(output, LOG_FILE)
+        self._write("=" * 80)
+        self._write(f"GATEHUNTER v{VERSION} - DEBUG LOG INICIADO")
+        self._write(f"Data: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        self._write(f"Log path: {self.log_path}")
+        self._write(f"Python: {sys.version}")
+        self._write(f"Platform: {sys.platform}")
+        self._write(f"curl_cffi: {CFFI_OK}")
+        self._write(f"Google CSE: {'Configurado' if GOOGLE_CSE_API_KEY else 'Nao configurado'}")
+        self._write("=" * 80)
+
+    def _write(self, msg, level="INFO"):
+        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        thread = threading.current_thread().name[:12]
+        line = f"{ts} | {level:8s} | {thread:12s} | {msg}"
+        with self._lock:
+            if self.log_path:
+                try:
+                    with open(self.log_path, "a", encoding="utf-8") as f:
+                        f.write(line + "\n")
+                except:
+                    pass
+
+    def debug(self, msg): self._write(msg, "DEBUG")
+    def info(self, msg): self._write(msg, "INFO")
+    def warning(self, msg): self._write(msg, "WARNING")
+    def error(self, msg): self._write(msg, "ERROR")
 
 log = DebugLogger()
 
@@ -394,51 +450,42 @@ log = DebugLogger()
 class ProxyRotator:
     def __init__(self):
         self.proxies = []
-        self.lock = threading.Lock()
         self.index = 0
-        self.failures = {}
-        self._load()
+        self._lock = threading.Lock()
+        self._load_proxies()
 
-    def _load(self):
-        for path in [PROXIES_PATH_DEFAULT, PROXIES_PATH_FALLBACK]:
+    def _load_proxies(self):
+        for path in PROXY_FILE_PATHS:
             if os.path.isfile(path):
                 log.info(f"Loading proxies from: {path}")
                 with open(path) as f:
                     for line in f:
                         line = line.strip()
-                        if not line or line.startswith("#"):
-                            continue
-                        parts = line.split(":")
-                        if len(parts) >= 4:
-                            ip, port, user, pwd = parts[0], parts[1], parts[2], ":".join(parts[3:])
-                            proxy = {"ip": ip, "port": port, "user": user, "pass": pwd}
-                            self.proxies.append(proxy)
-                            log.debug(f"PROXY LOADED | ip={ip} | port={port}")
-                        elif len(parts) == 2:
-                            self.proxies.append({"ip": parts[0], "port": parts[1], "user": "", "pass": ""})
-                            log.debug(f"PROXY LOADED | ip={parts[0]} | port={parts[1]}")
-                log.info(f"Total proxies loaded: {len(self.proxies)}")
-                return
-        log.warning("No proxy file found")
+                        if line and not line.startswith("#"):
+                            parts = line.split(":")
+                            if len(parts) >= 2:
+                                proxy = {
+                                    "ip": parts[0], "port": parts[1],
+                                    "user": parts[2] if len(parts) > 2 else "",
+                                    "pass": parts[3] if len(parts) > 3 else "",
+                                }
+                                self.proxies.append(proxy)
+                                log.debug(f"PROXY LOADED | ip={proxy['ip']} | port={proxy['port']}")
+                break
+        log.info(f"Total proxies loaded: {len(self.proxies)}")
 
-    def get(self) -> Optional[Dict]:
+    def get_next(self) -> Optional[Dict]:
         if not self.proxies:
             return None
-        with self.lock:
+        with self._lock:
             proxy = self.proxies[self.index % len(self.proxies)]
             self.index += 1
-            log.debug(f"PROXY SELECTED | ip={proxy['ip']}")
             return proxy
 
-    def get_url(self, proxy: Dict) -> str:
+    def get_proxy_url(self, proxy: Dict) -> str:
         if proxy["user"]:
             return f"http://{proxy['user']}:{proxy['pass']}@{proxy['ip']}:{proxy['port']}"
         return f"http://{proxy['ip']}:{proxy['port']}"
-
-    def mark_fail(self, proxy: Dict):
-        key = proxy["ip"]
-        self.failures[key] = self.failures.get(key, 0) + 1
-        log.debug(f"PROXY FAIL | ip={key} | failures={self.failures[key]}")
 
 # ══════════════════════════════════════════════════════════════════
 #                  FINGERPRINT GENERATOR
@@ -446,821 +493,893 @@ class ProxyRotator:
 
 class FingerprintGenerator:
     PLATFORMS = [
-        {"ua_platform": '"Windows"', "sec_ch_ua_mobile": "?0", "platform": "Windows"},
-        {"ua_platform": '"macOS"', "sec_ch_ua_mobile": "?0", "platform": "macOS"},
-        {"ua_platform": '"Linux"', "sec_ch_ua_mobile": "?0", "platform": "Linux"},
+        {"os": "Windows", "sec_ch_ua_platform": '"Windows"'},
+        {"os": "macOS", "sec_ch_ua_platform": '"macOS"'},
+        {"os": "Linux", "sec_ch_ua_platform": '"Linux"'},
     ]
 
-    def generate(self) -> Dict[str, str]:
+    def generate(self) -> Dict:
+        ua = random.choice(PREMIUM_USER_AGENTS)
         plat = random.choice(self.PLATFORMS)
-        if UA_GEN:
-            try: ua = UA_GEN.random
-            except: ua = random.choice(PREMIUM_USER_AGENTS)
-        else:
-            ua = random.choice(PREMIUM_USER_AGENTS)
         headers = {
             "User-Agent": ua,
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
             "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
             "Accept-Encoding": "gzip, deflate, br",
-            "Sec-Ch-Ua-Platform": plat["ua_platform"],
-            "Sec-Ch-Ua-Mobile": plat["sec_ch_ua_mobile"],
+            "DNT": "1",
+            "Connection": "keep-alive",
+            "Upgrade-Insecure-Requests": "1",
             "Sec-Fetch-Dest": "document",
             "Sec-Fetch-Mode": "navigate",
             "Sec-Fetch-Site": "none",
             "Sec-Fetch-User": "?1",
-            "Upgrade-Insecure-Requests": "1",
-            "Cache-Control": "max-age=0",
-            "DNT": "1",
+            "Sec-CH-UA-Platform": plat["sec_ch_ua_platform"],
         }
-        log.debug(f"FINGERPRINT | UA={ua[:80]} | Platform={plat['ua_platform']}")
+        log.debug(f"FINGERPRINT | UA={ua[:80]} | Platform={plat['sec_ch_ua_platform']}")
         return headers
 
 fingerprint = FingerprintGenerator()
 
 # ══════════════════════════════════════════════════════════════════
-#                    SMART REQUESTER
+#                   SMART REQUESTER
 # ══════════════════════════════════════════════════════════════════
 
 class SmartRequester:
-    """HTTP requester com curl_cffi impersonate + fallback urllib"""
+    IMPERSONATE_TARGETS = ["chrome120", "chrome119", "chrome116", "safari17_0", "safari15_5", "edge101"]
 
     def __init__(self, proxy_rotator: ProxyRotator):
         self.proxy = proxy_rotator
         self.stats = {"requests": 0, "success": 0, "failed": 0, "blocked": 0}
-        self.lock = threading.Lock()
+        self._lock = threading.Lock()
 
     def get(self, url: str, use_proxy: bool = True, timeout: int = REQUEST_TIMEOUT) -> Optional[str]:
-        """Faz GET request. use_proxy=False para buscas (IP direto é melhor)"""
-        with self.lock:
+        with self._lock:
             self.stats["requests"] += 1
 
         headers = fingerprint.generate()
-        proxy_info = None
-        proxy_url = None
+        proxy = self.proxy.get_next() if use_proxy else None
 
-        if use_proxy:
-            proxy_info = self.proxy.get()
-            if proxy_info:
-                proxy_url = self.proxy.get_url(proxy_info)
-
-        # Tentar com curl_cffi primeiro
+        # Tentar com curl_cffi
         if CFFI_OK:
-            imp = random.choice(IMPERSONATE_TARGETS)
             try:
-                t0 = time.time()
-                kwargs = {"impersonate": imp, "timeout": timeout, "headers": headers, "allow_redirects": True}
-                if proxy_url:
-                    kwargs["proxies"] = {"http": proxy_url, "https": proxy_url}
-                r = cffi_requests.get(url, **kwargs)
-                elapsed = time.time() - t0
-                log.debug(f"HTTP GET | status={r.status_code} | proxy={'direct' if not proxy_info else proxy_info['ip']} | imp={imp} | time={elapsed:.2f}s | url={url[:120]}")
+                imp = random.choice(self.IMPERSONATE_TARGETS)
+                proxies = None
+                if proxy:
+                    purl = self.proxy.get_proxy_url(proxy)
+                    proxies = {"http": purl, "https": purl}
+                    log.debug(f"PROXY SELECTED | ip={proxy['ip']}")
+
+                start = time.time()
+                r = cffi_requests.get(url, impersonate=imp, timeout=timeout, headers=headers, proxies=proxies, allow_redirects=True)
+                elapsed = time.time() - start
+
+                log.debug(f"HTTP GET | status={r.status_code} | proxy={proxy['ip'] if proxy else 'DIRECT'} | imp={imp} | time={elapsed:.2f}s | url={url[:120]}")
 
                 if r.status_code == 429:
-                    with self.lock:
+                    with self._lock:
                         self.stats["blocked"] += 1
-                    if proxy_info:
-                        self.proxy.mark_fail(proxy_info)
+                    log.warning(f"BLOCKED 429 | url={url[:80]}")
                     return None
+
                 if r.status_code == 200:
-                    with self.lock:
+                    with self._lock:
                         self.stats["success"] += 1
                     return r.text
-                return r.text if r.status_code < 400 else None
-            except Exception as e:
-                log.debug(f"HTTP ERROR | curl_cffi | {type(e).__name__}: {str(e)[:100]} | url={url[:100]}")
-                if proxy_info:
-                    self.proxy.mark_fail(proxy_info)
 
-        # Fallback: urllib
+            except Exception as e:
+                log.debug(f"curl_cffi error: {type(e).__name__}: {str(e)[:80]}")
+
+        # Fallback urllib
         try:
-            ctx = ssl.create_default_context()
-            ctx.check_hostname = False
-            ctx.verify_mode = ssl.CERT_NONE
             req = urllib.request.Request(url, headers=headers)
-            if proxy_url:
-                handler = urllib.request.ProxyHandler({"http": proxy_url, "https": proxy_url})
-                opener = urllib.request.build_opener(handler)
+            if proxy and proxy["user"]:
+                proxy_handler = urllib.request.ProxyHandler({
+                    "http": self.proxy.get_proxy_url(proxy),
+                    "https": self.proxy.get_proxy_url(proxy),
+                })
+                opener = urllib.request.build_opener(proxy_handler)
             else:
                 opener = urllib.request.build_opener()
-            t0 = time.time()
+
+            start = time.time()
             resp = opener.open(req, timeout=timeout)
             html = resp.read().decode("utf-8", errors="ignore")
-            elapsed = time.time() - t0
-            log.debug(f"HTTP GET | status={resp.status} | urllib | time={elapsed:.2f}s | url={url[:120]}")
-            with self.lock:
+            elapsed = time.time() - start
+
+            log.debug(f"HTTP urllib | status={resp.status} | time={elapsed:.2f}s | url={url[:120]}")
+            with self._lock:
                 self.stats["success"] += 1
             return html
+
         except Exception as e:
-            log.debug(f"HTTP ERROR | urllib | {type(e).__name__}: {str(e)[:100]} | url={url[:100]}")
-            with self.lock:
+            log.debug(f"urllib error: {type(e).__name__}: {str(e)[:80]}")
+            with self._lock:
                 self.stats["failed"] += 1
             return None
 
+
 # ══════════════════════════════════════════════════════════════════
-#                    DORK ENGINE v5
+#                    DORK ENGINE (MULTI-ENGINE)
 # ══════════════════════════════════════════════════════════════════
 
 class DorkEngine:
-    """Multi-engine: DDG HTML + Google.com.br + Bing + Google CSE API"""
+    """Motor de busca multi-engine: Brave + DDG + Bing + Google CSE API"""
 
     def __init__(self, requester: SmartRequester):
-        self.req = requester
+        self.requester = requester
+        self.seen_domains = set()
+        self._lock = threading.Lock()
 
-    def search_all(self, dork: str, max_per_engine: int = 30) -> Set[str]:
-        """Busca em todos os engines disponíveis"""
-        all_urls = set()
-
-        # Engine 1: DuckDuckGo HTML (SEM proxy - IP direto é melhor)
-        ddg_urls = self._search_ddg(dork, max_per_engine)
-        log.info(f"DORK DDG | results={len(ddg_urls)} | dork={dork[:80]}")
-        all_urls.update(ddg_urls)
-        time.sleep(random.uniform(SEARCH_DELAY_MIN, SEARCH_DELAY_MAX))
-
-        # Engine 2: Google.com.br (SEM proxy)
-        google_urls = self._search_google(dork, max_per_engine)
-        log.info(f"DORK Google | results={len(google_urls)} | dork={dork[:80]}")
-        all_urls.update(google_urls)
-        time.sleep(random.uniform(SEARCH_DELAY_MIN, SEARCH_DELAY_MAX))
-
-        # Engine 3: Bing (SEM proxy)
-        bing_urls = self._search_bing(dork, max_per_engine)
-        log.info(f"DORK Bing | results={len(bing_urls)} | dork={dork[:80]}")
-        all_urls.update(bing_urls)
-
-        # Engine 4: Google CSE API (se configurada)
-        if GOOGLE_CSE_API_KEY and GOOGLE_CSE_CX:
-            time.sleep(1)
-            cse_urls = self._search_google_cse(dork, max_per_engine)
-            log.info(f"DORK CSE | results={len(cse_urls)} | dork={dork[:80]}")
-            all_urls.update(cse_urls)
-
-        return all_urls
-
-    def _search_ddg(self, query: str, max_results: int = 30) -> Set[str]:
-        """DuckDuckGo HTML - SEM proxy, IP direto"""
-        urls = set()
+    def _extract_domain(self, url: str) -> str:
         try:
-            # Usar DDG HTML (não Lite - mais confiável)
-            encoded = urllib.parse.quote(query)
-            search_url = f"https://html.duckduckgo.com/html/?q={encoded}"
-            headers = {
-                "User-Agent": random.choice(PREMIUM_USER_AGENTS),
-                "Accept": "text/html,application/xhtml+xml",
-                "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
-            }
-            req = urllib.request.Request(search_url, headers=headers)
+            parsed = urllib.parse.urlparse(url)
+            domain = parsed.netloc.lower()
+            if domain.startswith("www."):
+                domain = domain[4:]
+            return domain
+        except:
+            return ""
+
+    def _is_valid_url(self, url: str) -> bool:
+        """Filtro de URL em 3 camadas: dominio, subdominio, path"""
+        domain = self._extract_domain(url)
+        if not domain:
+            return False
+
+        # Camada 1: Blacklist de dominio
+        for bl in DOMAIN_BLACKLIST:
+            if domain == bl or domain.endswith("." + bl):
+                log.debug(f"FILTERED [BLACKLIST] | {url[:80]} | match={bl}")
+                return False
+
+        # Camada 2: Subdominio informacional
+        for sub in INFORMATIONAL_SUBDOMAINS:
+            if domain.startswith(sub):
+                log.debug(f"FILTERED [SUBDOMAIN] | {url[:80]} | match={sub}")
+                return False
+
+        # Camada 3: Path ruim
+        url_lower = url.lower()
+        for bad in BAD_PATH_PATTERNS:
+            if bad in url_lower:
+                log.debug(f"FILTERED [PATH] | {url[:80]} | match={bad}")
+                return False
+
+        # Camada 4: Dedup por dominio (apenas 1 URL por dominio)
+        with self._lock:
+            if domain in self.seen_domains:
+                log.debug(f"FILTERED [DEDUP] | {url[:80]} | domain={domain}")
+                return False
+            self.seen_domains.add(domain)
+
+        log.info(f"URL PASSED | {url[:100]} | domain={domain}")
+        return True
+
+    def _clean_url(self, url: str) -> str:
+        """Limpar URL removendo tracking params"""
+        try:
+            parsed = urllib.parse.urlparse(url)
+            clean = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+            if clean.endswith("/"):
+                clean = clean[:-1]
+            return clean
+        except:
+            return url
+
+    # ─────────────────────────────────────────────────
+    #  ENGINE 1: BRAVE SEARCH (principal)
+    # ─────────────────────────────────────────────────
+    def search_brave(self, query: str, max_pages: int = 3) -> Set[str]:
+        """Brave Search - engine principal, retorna resultados limpos"""
+        urls = set()
+        log.info(f"BRAVE SEARCH | query={query}")
+
+        headers = {
+            "User-Agent": random.choice(PREMIUM_USER_AGENTS),
+            "Accept": "text/html,application/xhtml+xml",
+            "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
+        }
+
+        for page in range(max_pages):
             try:
+                q = urllib.parse.quote(query)
+                offset = page * 10
+                url = f"https://search.brave.com/search?q={q}&source=web&offset={offset}"
+
+                req = urllib.request.Request(url, headers=headers)
                 resp = urllib.request.urlopen(req, timeout=15)
                 html = resp.read().decode("utf-8", errors="ignore")
-                log.debug(f"DDG HTML | status={resp.status} | length={len(html)}")
+
+                page_urls = set()
+                # Padrão 1: href em resultados
+                for m in re.finditer(r'href="(https?://[^"]+)"', html):
+                    u = m.group(1)
+                    domain = self._extract_domain(u)
+                    if domain and not any(x in domain for x in ["brave.com", "search.brave", "googleapis", "gstatic"]):
+                        page_urls.add(self._clean_url(u))
+
+                new = page_urls - urls
+                urls.update(page_urls)
+                log.info(f"BRAVE page {page} | found={len(page_urls)} | new={len(new)} | status={resp.status}")
+
+                if page < max_pages - 1:
+                    delay = random.uniform(SEARCH_DELAY_MIN, SEARCH_DELAY_MAX)
+                    time.sleep(delay)
+
+            except urllib.error.HTTPError as e:
+                if e.code == 429:
+                    log.warning(f"BRAVE RATE LIMITED | page={page} | waiting 15s")
+                    time.sleep(15)
+                else:
+                    log.error(f"BRAVE ERROR | page={page} | {e}")
+                break
             except Exception as e:
-                log.debug(f"DDG HTML failed, trying Lite | {e}")
-                # Fallback para DDG Lite
-                search_url = f"https://lite.duckduckgo.com/lite/?q={encoded}"
-                req = urllib.request.Request(search_url, headers=headers)
-                resp = urllib.request.urlopen(req, timeout=15)
-                html = resp.read().decode("utf-8", errors="ignore")
-                log.debug(f"DDG Lite | status={resp.status} | length={len(html)}")
+                log.error(f"BRAVE ERROR | page={page} | {type(e).__name__}: {str(e)[:80]}")
+                break
 
-            # Extrair URLs do DDG
-            for m in re.finditer(r'uddg=(https?%3A[^&"\']+)', html):
-                u = urllib.parse.unquote(m.group(1))
-                if "duckduckgo" not in u:
-                    urls.add(u)
-
-            # Padrão alternativo
-            for m in re.finditer(r'href="(https?://(?!duckduckgo)[^"]+)"[^>]*class="result', html):
-                urls.add(m.group(1))
-
-            log.debug(f"DDG extracted {len(urls)} URLs")
-
-            # Tentar página 2 se tiver resultados
-            if urls and len(urls) >= 8:
-                time.sleep(2)
-                try:
-                    search_url2 = f"https://html.duckduckgo.com/html/?q={encoded}&s=30&dc=31"
-                    req2 = urllib.request.Request(search_url2, headers=headers)
-                    resp2 = urllib.request.urlopen(req2, timeout=15)
-                    html2 = resp2.read().decode("utf-8", errors="ignore")
-                    for m in re.finditer(r'uddg=(https?%3A[^&"\']+)', html2):
-                        u = urllib.parse.unquote(m.group(1))
-                        if "duckduckgo" not in u:
-                            urls.add(u)
-                    log.debug(f"DDG page 2: total {len(urls)} URLs")
-                except:
-                    pass
-
-        except Exception as e:
-            log.error(f"DDG search error: {e}")
+        log.info(f"BRAVE TOTAL | query={query[:60]} | urls={len(urls)}")
         return urls
 
-    def _search_google(self, query: str, max_results: int = 30) -> Set[str]:
-        """Google.com.br - SEM proxy, com consent cookie"""
+    # ─────────────────────────────────────────────────
+    #  ENGINE 2: DUCKDUCKGO HTML
+    # ─────────────────────────────────────────────────
+    def search_ddg(self, query: str, max_pages: int = 3) -> Set[str]:
+        """DuckDuckGo HTML - funciona melhor no NetHunter"""
         urls = set()
-        try:
-            encoded = urllib.parse.quote(query)
-            for start in [0, 10]:
-                search_url = f"https://www.google.com.br/search?q={encoded}&num=20&start={start}&hl=pt-BR&gl=br"
-                headers = {
-                    "User-Agent": random.choice(PREMIUM_USER_AGENTS),
-                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                    "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
-                    "Cookie": "CONSENT=YES+cb.20210720-17-p0.en+FX+410; SOCS=CAISHAgBEhJnd3NfMjAyNDA4MTUtMF9SQzIaAmVuIAEaBgiA_LSmBg; NID=511=test",
-                }
+        log.info(f"DDG SEARCH | query={query}")
 
-                html = None
-                # Tentar com curl_cffi (melhor TLS fingerprint)
-                if CFFI_OK:
-                    try:
-                        imp = random.choice(["chrome120", "chrome119", "chrome116"])
-                        r = cffi_requests.get(search_url, impersonate=imp, timeout=15, headers=headers)
-                        html = r.text
-                        log.debug(f"Google | status={r.status_code} | imp={imp} | page={start//10} | length={len(html)}")
-                        if r.status_code == 429:
-                            log.warning("Google 429 - rate limited")
-                            break
-                    except Exception as e:
-                        log.debug(f"Google curl_cffi error: {e}")
+        headers = {
+            "User-Agent": random.choice(PREMIUM_USER_AGENTS),
+            "Accept": "text/html,application/xhtml+xml",
+            "Accept-Language": "pt-BR,pt;q=0.9",
+        }
 
-                # Fallback urllib
-                if not html:
-                    try:
-                        req = urllib.request.Request(search_url, headers=headers)
-                        resp = urllib.request.urlopen(req, timeout=15)
-                        html = resp.read().decode("utf-8", errors="ignore")
-                        log.debug(f"Google urllib | status={resp.status} | page={start//10} | length={len(html)}")
-                    except Exception as e:
-                        log.debug(f"Google urllib error: {e}")
-                        continue
-
-                if not html:
-                    continue
-
-                # Extrair URLs - múltiplos padrões
-                page_urls = set()
-
-                # Padrão 1: /url?q= (formato clássico)
-                for m in re.finditer(r'/url\?q=(https?://[^&"]+)', html):
-                    u = urllib.parse.unquote(m.group(1))
-                    if not any(x in u for x in ["google.com", "gstatic", "schema.org", "youtube.com/results", "accounts.google"]):
-                        page_urls.add(u)
-
-                # Padrão 2: data-href
-                for m in re.finditer(r'data-href="(https?://[^"]+)"', html):
-                    page_urls.add(m.group(1))
-
-                # Padrão 3: links diretos em resultados
-                for m in re.finditer(r'<a[^>]+href="(https?://(?!www\.google|accounts\.google|support\.google|maps\.google|webcache\.google|translate\.google|play\.google)[^"]+)"[^>]*(?:data-|ping=)', html):
-                    page_urls.add(m.group(1))
-
-                # Padrão 4: cite tags (URLs visíveis nos resultados)
-                for m in re.finditer(r'<cite[^>]*>(.*?)</cite>', html):
-                    text = re.sub(r'<[^>]+>', '', m.group(1)).strip()
-                    if re.match(r'https?://', text):
-                        page_urls.add(text.split(' ')[0])
-
-                new_count = len(page_urls - urls)
-                urls.update(page_urls)
-                log.debug(f"Google page {start//10}: {new_count} new URLs (total: {len(urls)})")
-
-                if start == 0 and new_count > 0:
-                    time.sleep(random.uniform(2, 4))
+        for page in range(max_pages):
+            try:
+                q = urllib.parse.quote(query)
+                if page == 0:
+                    url = f"https://html.duckduckgo.com/html/?q={q}"
                 else:
+                    url = f"https://html.duckduckgo.com/html/?q={q}&s={page*30}&dc={page*30+1}"
+
+                req = urllib.request.Request(url, headers=headers)
+                resp = urllib.request.urlopen(req, timeout=15)
+                html = resp.read().decode("utf-8", errors="ignore")
+
+                page_urls = set()
+                # Padrão DDG: uddg redirect
+                for m in re.finditer(r'uddg=(https?%3A[^&"\']+)', html):
+                    u = urllib.parse.unquote(m.group(1))
+                    if "duckduckgo" not in u:
+                        page_urls.add(self._clean_url(u))
+
+                # Padrão DDG: href direto
+                for m in re.finditer(r'class="result__a"[^>]*href="(https?://[^"]+)"', html):
+                    u = m.group(1)
+                    if "duckduckgo" not in u:
+                        page_urls.add(self._clean_url(u))
+
+                new = page_urls - urls
+                urls.update(page_urls)
+                log.info(f"DDG page {page} | found={len(page_urls)} | new={len(new)} | status={resp.status}")
+
+                if resp.status == 202:
+                    log.warning(f"DDG returned 202 (rate limited)")
                     break
 
-        except Exception as e:
-            log.error(f"Google search error: {e}")
+                if page < max_pages - 1:
+                    delay = random.uniform(SEARCH_DELAY_MIN, SEARCH_DELAY_MAX)
+                    time.sleep(delay)
+
+            except Exception as e:
+                log.error(f"DDG ERROR | page={page} | {type(e).__name__}: {str(e)[:80]}")
+                break
+
+        log.info(f"DDG TOTAL | query={query[:60]} | urls={len(urls)}")
         return urls
 
-    def _search_bing(self, query: str, max_results: int = 30) -> Set[str]:
-        """Bing - SEM proxy"""
+    # ─────────────────────────────────────────────────
+    #  ENGINE 3: BING
+    # ─────────────────────────────────────────────────
+    def search_bing(self, query: str, max_pages: int = 2) -> Set[str]:
+        """Bing Search"""
         urls = set()
-        try:
-            encoded = urllib.parse.quote(query)
-            for first in [1, 11, 21]:
-                search_url = f"https://www.bing.com/search?q={encoded}&first={first}&count=10"
+        log.info(f"BING SEARCH | query={query}")
+
+        for page in range(max_pages):
+            try:
+                q = urllib.parse.quote(query)
+                first = page * 10 + 1
+                url = f"https://www.bing.com/search?q={q}&first={first}&count=20&setlang=pt-BR&cc=BR"
+
                 headers = {
                     "User-Agent": random.choice(PREMIUM_USER_AGENTS),
                     "Accept": "text/html,application/xhtml+xml",
                     "Accept-Language": "pt-BR,pt;q=0.9",
+                    "Cookie": "SRCHHPGUSR=ADLT=OFF&NRSLT=20&SRCHLANG=pt-BR",
                 }
-
-                html = None
-                if CFFI_OK:
-                    try:
-                        r = cffi_requests.get(search_url, impersonate="edge101", timeout=15, headers=headers)
-                        html = r.text
-                        log.debug(f"Bing | status={r.status_code} | page={first//10} | length={len(html)}")
-                    except:
-                        pass
-
-                if not html:
-                    try:
-                        req = urllib.request.Request(search_url, headers=headers)
-                        resp = urllib.request.urlopen(req, timeout=15)
-                        html = resp.read().decode("utf-8", errors="ignore")
-                    except:
-                        continue
-
-                if not html:
-                    continue
+                req = urllib.request.Request(url, headers=headers)
+                resp = urllib.request.urlopen(req, timeout=15)
+                html = resp.read().decode("utf-8", errors="ignore")
 
                 page_urls = set()
-                # Links de resultado do Bing
-                for m in re.finditer(r'<h2><a[^>]+href="(https?://(?!www\.bing|login\.live|go\.microsoft|microsoft\.com)[^"]+)"', html):
-                    page_urls.add(m.group(1))
-                # Cite tags
-                for m in re.finditer(r'<cite>(.*?)</cite>', html):
-                    text = re.sub(r'<[^>]+>', '', m.group(1)).strip()
-                    if text.startswith("http"):
-                        page_urls.add(text)
+                # Padrão 1: cite tag
+                for m in re.finditer(r'<cite[^>]*>(https?://[^<]+)</cite>', html):
+                    u = re.sub(r'<[^>]+>', '', m.group(1)).strip().split(" ")[0]
+                    if u.startswith("http"):
+                        page_urls.add(self._clean_url(u))
 
-                new_count = len(page_urls - urls)
+                # Padrão 2: h2 > a href
+                for m in re.finditer(r'<h2[^>]*><a[^>]+href="(https?://[^"]+)"', html):
+                    u = m.group(1)
+                    if "bing.com" not in u and "microsoft.com" not in u:
+                        page_urls.add(self._clean_url(u))
+
+                # Padrão 3: data-bm em resultados organicos
+                for m in re.finditer(r'<a[^>]+href="(https?://(?!www\.bing|login\.live|go\.microsoft)[^"]+)"[^>]*class="[^"]*tilk[^"]*"', html):
+                    page_urls.add(self._clean_url(m.group(1)))
+
+                new = page_urls - urls
                 urls.update(page_urls)
-                log.debug(f"Bing page {first//10}: {new_count} new URLs (total: {len(urls)})")
+                log.info(f"BING page {page} | found={len(page_urls)} | new={len(new)} | status={resp.status}")
 
-                if new_count == 0:
-                    break
-                time.sleep(random.uniform(2, 3))
+                if page < max_pages - 1:
+                    delay = random.uniform(SEARCH_DELAY_MIN, SEARCH_DELAY_MAX)
+                    time.sleep(delay)
 
-        except Exception as e:
-            log.error(f"Bing search error: {e}")
+            except Exception as e:
+                log.error(f"BING ERROR | page={page} | {type(e).__name__}: {str(e)[:80]}")
+                break
+
+        log.info(f"BING TOTAL | query={query[:60]} | urls={len(urls)}")
         return urls
 
-    def _search_google_cse(self, query: str, max_results: int = 30) -> Set[str]:
-        """Google Custom Search Engine API - resultados limpos em JSON"""
-        urls = set()
+    # ─────────────────────────────────────────────────
+    #  ENGINE 4: GOOGLE CSE API (opcional)
+    # ─────────────────────────────────────────────────
+    def search_google_cse(self, query: str, max_pages: int = 2) -> Set[str]:
+        """Google Custom Search Engine API - 100 buscas/dia gratis"""
         if not GOOGLE_CSE_API_KEY or not GOOGLE_CSE_CX:
-            return urls
-        try:
-            for start in [1, 11]:
-                api_url = (
-                    f"https://www.googleapis.com/customsearch/v1"
-                    f"?key={GOOGLE_CSE_API_KEY}&cx={GOOGLE_CSE_CX}"
-                    f"&q={urllib.parse.quote(query)}&start={start}&num=10&gl=br&lr=lang_pt"
-                )
-                req = urllib.request.Request(api_url)
+            return set()
+
+        urls = set()
+        log.info(f"GOOGLE CSE | query={query}")
+
+        for page in range(max_pages):
+            try:
+                start = page * 10 + 1
+                params = urllib.parse.urlencode({
+                    "key": GOOGLE_CSE_API_KEY,
+                    "cx": GOOGLE_CSE_CX,
+                    "q": query,
+                    "start": start,
+                    "num": 10,
+                    "lr": "lang_pt",
+                    "cr": "countryBR",
+                })
+                url = f"https://www.googleapis.com/customsearch/v1?{params}"
+
+                req = urllib.request.Request(url)
                 resp = urllib.request.urlopen(req, timeout=15)
                 data = json.loads(resp.read().decode("utf-8"))
-                items = data.get("items", [])
-                for item in items:
-                    urls.add(item["link"])
-                log.debug(f"Google CSE | start={start} | results={len(items)}")
-                if len(items) < 10:
-                    break
-                time.sleep(1)
-        except Exception as e:
-            log.error(f"Google CSE error: {e}")
+
+                for item in data.get("items", []):
+                    link = item.get("link", "")
+                    if link:
+                        urls.add(self._clean_url(link))
+
+                log.info(f"GOOGLE CSE page {page} | items={len(data.get('items', []))}")
+
+                if page < max_pages - 1:
+                    time.sleep(1)
+
+            except Exception as e:
+                log.error(f"GOOGLE CSE ERROR | {type(e).__name__}: {str(e)[:80]}")
+                break
+
+        log.info(f"GOOGLE CSE TOTAL | urls={len(urls)}")
         return urls
 
-# ══════════════════════════════════════════════════════════════════
-#                     URL FILTER
-# ══════════════════════════════════════════════════════════════════
+    # ─────────────────────────────────────────────────
+    #  MULTI-ENGINE SEARCH
+    # ─────────────────────────────────────────────────
+    def search_all_engines(self, dork: str) -> Set[str]:
+        """Buscar em todas as engines disponiveis"""
+        all_urls = set()
 
-class URLFilter:
-    """Filtra URLs indesejadas antes da análise"""
+        # Engine 1: Brave (principal)
+        brave_urls = self.search_brave(dork, max_pages=2)
+        all_urls.update(brave_urls)
 
-    @staticmethod
-    def is_valid(url: str) -> Tuple[bool, str]:
-        try:
-            parsed = urllib.parse.urlparse(url)
-            domain = parsed.netloc.lower().replace("www.", "")
-            path = parsed.path.lower()
+        delay = random.uniform(3, 5)
+        time.sleep(delay)
 
-            # Verificar blacklist de domínios
-            for bl in DOMAIN_BLACKLIST:
-                if domain == bl or domain.endswith("." + bl):
-                    log.debug(f"FILTERED | reason=blacklist:{bl} | url={url[:100]}")
-                    return False, f"blacklist:{bl}"
+        # Engine 2: DDG
+        ddg_urls = self.search_ddg(dork, max_pages=2)
+        all_urls.update(ddg_urls)
 
-            # Verificar subdomínios informativos
-            for sub in INFORMATIONAL_SUBDOMAINS:
-                if domain.startswith(sub):
-                    log.debug(f"FILTERED | reason=informational_subdomain:{sub} | url={url[:100]}")
-                    return False, f"subdomain:{sub}"
+        delay = random.uniform(3, 5)
+        time.sleep(delay)
 
-            # Verificar paths ruins
-            for bp in BAD_PATH_PATTERNS:
-                if bp in path:
-                    log.debug(f"FILTERED | reason=bad_path:{bp} | url={url[:100]}")
-                    return False, f"bad_path:{bp}"
+        # Engine 3: Bing
+        bing_urls = self.search_bing(dork, max_pages=1)
+        all_urls.update(bing_urls)
 
-            # Filtrar URLs sem domínio real
-            if "." not in domain:
-                return False, "no_tld"
+        # Engine 4: Google CSE (se configurado)
+        if GOOGLE_CSE_API_KEY:
+            cse_urls = self.search_google_cse(dork, max_pages=1)
+            all_urls.update(cse_urls)
 
-            # Filtrar URLs com fragmentos de busca (cite tags do Bing)
-            if " › " in url or "..." in url:
-                # Reconstruir URL do Bing cite
-                clean = url.split(" › ")[0].split("...")[0].strip()
-                if clean.startswith("http"):
-                    return True, "cleaned"
-                return False, "bing_cite_fragment"
+        log.info(f"ALL ENGINES | dork={dork[:60]} | brave={len(brave_urls)} | ddg={len(ddg_urls)} | bing={len(bing_urls)} | total={len(all_urls)}")
+        return all_urls
 
-            return True, "ok"
-        except:
-            return False, "parse_error"
+    def collect_urls(self, dorks: List[str], niche_terms: List[str] = None) -> List[str]:
+        """Coletar URLs de todas as dorks com filtro de nicho"""
+        all_raw_urls = set()
+        valid_urls = []
 
-    @staticmethod
-    def deduplicate_by_domain(urls: Set[str]) -> List[str]:
-        """Mantém apenas 1 URL por domínio"""
-        seen_domains = set()
-        unique = []
-        for url in sorted(urls):
-            try:
-                domain = urllib.parse.urlparse(url).netloc.lower().replace("www.", "")
-                if domain not in seen_domains:
-                    seen_domains.add(domain)
-                    unique.append(url)
-            except:
-                continue
-        return unique
+        total_dorks = len(dorks)
+        expanded_dorks = list(dorks)
+
+        # Se tem nicho, adicionar variações com termos do nicho
+        if niche_terms:
+            for dork in dorks[:5]:  # Top 5 dorks com termos de nicho
+                for term in niche_terms[:3]:  # Top 3 termos
+                    expanded_dorks.append(f"{dork} {term}")
+
+        log.info(f"COLLECTING | base_dorks={total_dorks} | expanded={len(expanded_dorks)} | niche={niche_terms}")
+
+        for i, dork in enumerate(expanded_dorks, 1):
+            print(f"  {D}{datetime.now().strftime('%H:%M:%S')}{RST} [{C}-{RST}] Dork [{i}/{len(expanded_dorks)}]: {Y}{dork[:60]}{RST}...")
+            log.info(f"DORK [{i}/{len(expanded_dorks)}] | {dork}")
+
+            raw_urls = self.search_all_engines(dork)
+            new_raw = raw_urls - all_raw_urls
+            all_raw_urls.update(raw_urls)
+
+            # Filtrar URLs validas
+            for url in new_raw:
+                if self._is_valid_url(url):
+                    valid_urls.append(url)
+
+            print(f"  {D}{datetime.now().strftime('%H:%M:%S')}{RST} [{G}+{RST}] -> {len(new_raw)} raw, {G}{len(valid_urls)}{RST} validas acumuladas")
+            log.info(f"DORK RESULT | raw_new={len(new_raw)} | valid_total={len(valid_urls)}")
+
+            # Delay entre dorks para evitar rate limit
+            if i < len(expanded_dorks):
+                delay = random.uniform(SEARCH_DELAY_MIN + 2, SEARCH_DELAY_MAX + 3)
+                time.sleep(delay)
+
+        log.info(f"COLLECTION DONE | total_raw={len(all_raw_urls)} | valid={len(valid_urls)}")
+        return valid_urls
+
 
 # ══════════════════════════════════════════════════════════════════
 #                    SITE ANALYZER
 # ══════════════════════════════════════════════════════════════════
 
 class SiteAnalyzer:
-    """Analisa sites para confirmar gateway e classificar como loja"""
+    """Analisa sites para confirmar gateway e classificar nicho"""
 
     ECOMMERCE_PLATFORMS = {
-        "WooCommerce": [r"woocommerce", r"wc-cart", r"add-to-cart", r"wp-content/plugins/woocommerce"],
-        "Shopify": [r"cdn\.shopify\.com", r"shopify-section", r"myshopify"],
-        "VTEX": [r"vtex\.com", r"vteximg", r"vtexcommerce"],
-        "Magento": [r"magento", r"mage-", r"Magento_"],
-        "PrestaShop": [r"prestashop", r"presta-"],
-        "OpenCart": [r"opencart", r"route=product"],
-        "Nuvemshop": [r"nuvemshop", r"tiendanube", r"lojanuvem"],
-        "Tray": [r"tray\.com\.br", r"traycorp"],
-        "Loja Integrada": [r"lojaintegrada", r"loja-integrada"],
-        "Yampi": [r"yampi\.com\.br", r"yampi\.io"],
-        "Cartpanda": [r"cartpanda"],
-        "Hotmart": [r"hotmart\.com", r"pay\.hotmart"],
+        "WooCommerce": ["woocommerce", "wc-ajax", "add-to-cart", "wp-content/plugins/woocommerce"],
+        "Shopify": ["shopify", "cdn.shopify", "myshopify"],
+        "VTEX": ["vtex", "vtexcommercestable", "vteximg"],
+        "Magento": ["magento", "mage-", "checkout/cart"],
+        "Nuvemshop": ["nuvemshop", "lojanuvem", "nuvem.shop"],
+        "Tray": ["tray.com.br", "traycorp", "tray-checkout"],
+        "Loja Integrada": ["lojaintegrada", "loja-integrada"],
+        "OpenCart": ["opencart", "route=product", "route=checkout"],
+        "PrestaShop": ["prestashop", "presta-shop", "module/ps_"],
+        "Yampi": ["yampi", "checkout.yampi"],
+        "CartPanda": ["cartpanda"],
+        "Bagy": ["bagy.com.br"],
     }
 
-    STORE_POSITIVE_SIGNALS = [
-        (r'R\$\s*\d+[.,]\d{2}', 5, "price_brl"),
-        (r'class="[^"]*price[^"]*"', 4, "price_class"),
-        (r'adicionar.*carrinho|add.to.cart|comprar.agora|buy.now', 5, "buy_button"),
-        (r'carrinho|cart|sacola|bag', 3, "cart"),
-        (r'checkout|finalizar.compra|fechar.pedido', 4, "checkout"),
-        (r'frete|shipping|entrega|envio|sedex|correios', 4, "shipping"),
-        (r'cep|zip.code|calcular.frete', 3, "shipping_calc"),
-        (r'produto|product|item', 2, "product"),
-        (r'estoque|stock|disponivel|disponibilidade', 2, "stock"),
-        (r'tamanho|size|cor|color|variacao|variation', 2, "variations"),
-        (r'avaliacao|review|estrela|rating', 2, "reviews"),
-        (r'cupom|coupon|desconto|discount|promocao', 2, "promo"),
-        (r'pix|boleto|cartao.de.credito|credit.card|debito', 3, "payment_method"),
-        (r'parcela|installment|parcelamento|vezes.sem.juros', 3, "installments"),
-        (r'minha.conta|my.account|meus.pedidos|my.orders', 2, "user_account"),
-        (r'politica.de.troca|devolucao|refund|exchange', 2, "return_policy"),
-    ]
+    NICHE_KEYWORDS = {
+        "Loja de Roupas / Moda": ["roupa", "camiseta", "vestido", "blusa", "calca", "jeans", "moda", "fashion", "look", "colecao", "feminino", "masculino", "plus size", "estilo", "tendencia"],
+        "Loja de Calcados / Tenis": ["tenis", "sapato", "bota", "sandalia", "chinelo", "calcado", "sneaker", "sapatilha", "tamanco"],
+        "Loja de Eletronicos": ["celular", "smartphone", "notebook", "tablet", "fone", "headset", "eletronico", "informatica", "pc gamer", "monitor", "teclado"],
+        "Gift Card / Vale Presente": ["gift card", "giftcard", "vale presente", "cartao presente", "credito digital", "recarga"],
+        "Joalheria / Relogios": ["joia", "anel", "colar", "brinco", "pulseira", "relogio", "ouro", "prata", "alianca", "semi joia"],
+        "Cosmeticos / Beleza": ["cosmetico", "maquiagem", "perfume", "batom", "base", "skincare", "creme", "hidratante", "beleza", "cabelo", "shampoo"],
+        "Suplementos / Saude": ["suplemento", "whey", "creatina", "vitamina", "proteina", "pre treino", "fitness", "academia", "bcaa"],
+        "Pet Shop": ["pet", "racao", "cachorro", "gato", "petisco", "coleira", "brinquedo pet", "veterinario", "animal"],
+        "Casa / Decoracao": ["decoracao", "movel", "sofa", "mesa", "cadeira", "cortina", "tapete", "luminaria", "cama", "travesseiro"],
+        "Alimentos / Bebidas": ["alimento", "cafe", "vinho", "cerveja", "chocolate", "gourmet", "organico", "tempero", "doce", "bolo"],
+        "Esportes / Fitness": ["esporte", "academia", "corrida", "futebol", "bicicleta", "yoga", "pilates", "natacao", "camping"],
+        "Infantil / Brinquedos": ["brinquedo", "infantil", "crianca", "bebe", "kids", "carrinho", "boneca", "lego", "educativo"],
+        "Farmacia / Saude": ["farmacia", "medicamento", "remedio", "saude", "bem estar", "dermocosmetico"],
+        "Loja Geral / Variedades": ["loja", "produto", "comprar", "oferta", "promocao", "desconto"],
+    }
 
-    STORE_NEGATIVE_SIGNALS = [
-        (r'documentacao|documentation|api.reference|endpoint', -10, "documentation"),
-        (r'tutorial|how.to|como.usar|passo.a.passo|step.by.step', -8, "tutorial"),
-        (r'blog|artigo|article|post|noticias|news', -6, "blog"),
-        (r'central.de.ajuda|help.center|suporte|support.ticket', -8, "support"),
-        (r'comparativo|comparison|versus|vs\.|alternativas', -6, "comparison"),
-        (r'integrar|integracao|integration|sdk|api.key|webhook', -8, "integration"),
-        (r'cadastre-se.gratis|free.trial|teste.gratis|sign.up.free', -5, "saas_signup"),
-        (r'planos.e.precos|pricing|nossos.planos|our.plans', -5, "pricing_page"),
-        (r'sobre.nos|about.us|quem.somos|nossa.historia', -4, "about_page"),
-        (r'vagas|careers|trabalhe.conosco|join.our.team', -8, "careers"),
-        (r'case.de.sucesso|success.story|depoimento|testimonial', -4, "case_study"),
-    ]
-
-    def __init__(self, requester: SmartRequester, gateway_sigs: List[str]):
-        self.req = requester
-        self.sigs = [s.lower() for s in gateway_sigs]
+    def __init__(self, requester: SmartRequester, gateway_key: str):
+        self.requester = requester
+        self.gateway = GATEWAYS[gateway_key]
+        self.gateway_key = gateway_key
 
     def analyze(self, url: str) -> Optional[Dict]:
-        """Analisa um site: confirma gateway + classifica como loja"""
+        """Analisa um site e retorna dados ou None se invalido"""
+        log.info(f"ANALYZING | {url}")
+
         try:
-            log.debug(f"ANALYZING | url={url[:100]}")
-            html = self.req.get(url, use_proxy=True, timeout=REQUEST_TIMEOUT)
+            html = self.requester.get(url, use_proxy=True, timeout=REQUEST_TIMEOUT)
             if not html:
-                log.debug(f"ANALYZE FAIL | no response | url={url[:80]}")
+                log.warning(f"NO HTML | {url}")
                 return None
 
             html_lower = html.lower()
+            log.debug(f"HTML SIZE | {len(html)} bytes | {url[:80]}")
+
+            # ── Verificar se é loja real (Store Validator) ──
+            store_score = self._calculate_store_score(html_lower)
+            log.info(f"STORE SCORE | score={store_score} | threshold={STORE_SCORE_THRESHOLD} | {url[:80]}")
+
+            if store_score < STORE_SCORE_THRESHOLD:
+                log.info(f"REJECTED [LOW SCORE] | score={store_score} | {url[:80]}")
+                return None
+
+            # ── Confirmar gateway no HTML ──
+            gateway_confirmed, gateway_evidence = self._confirm_gateway(html, html_lower)
+            log.info(f"GATEWAY CHECK | confirmed={gateway_confirmed} | evidence={gateway_evidence[:80] if gateway_evidence else 'NONE'} | {url[:80]}")
+
+            # ── Detectar plataforma e-commerce ──
+            platform = self._detect_platform(html_lower)
+
+            # ── Classificar nicho ──
+            niche = self._classify_niche(html_lower)
+
+            # ── Extrair metadados ──
+            title = self._extract_title(html)
+            description = self._extract_meta(html, "description")
+            emails = self._extract_emails(html)
+            phones = self._extract_phones(html)
+
             result = {
                 "url": url,
-                "domain": urllib.parse.urlparse(url).netloc.lower().replace("www.", ""),
-                "title": self._extract_title(html),
-                "description": self._extract_meta(html, "description"),
-                "keywords": self._extract_meta(html, "keywords"),
-                "gateway_confirmed": False,
-                "gateway_matches": [],
-                "is_real_store": False,
-                "store_score": 0,
-                "store_signals": [],
-                "category": "",
-                "platform": "Desconhecida",
-                "technologies": [],
-                "ssl": url.startswith("https"),
-                "emails": self._extract_emails(html),
-                "phones": self._extract_phones(html),
+                "domain": self._extract_domain(url),
+                "title": title[:200] if title else "",
+                "description": description[:300] if description else "",
+                "gateway_confirmed": gateway_confirmed,
+                "gateway_evidence": gateway_evidence,
+                "store_score": store_score,
+                "platform": platform,
+                "niche": niche,
+                "emails": emails[:5],
+                "phones": phones[:5],
                 "html_size": len(html),
-                "analyzed_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "timestamp": datetime.now().isoformat(),
             }
 
-            # 1. Confirmar gateway
-            result["gateway_confirmed"], result["gateway_matches"] = self._confirm_gateway(html, html_lower)
-
-            # 2. Detectar plataforma
-            result["platform"], result["technologies"] = self._detect_platform(html_lower)
-
-            # 3. Calcular store score
-            result["store_score"], result["store_signals"] = self._calculate_store_score(html_lower)
-            result["is_real_store"] = result["store_score"] >= STORE_SCORE_THRESHOLD
-
-            # 4. Classificar categoria
-            result["category"] = self._classify_category(html_lower, result)
-
-            # 5. Status final
-            if result["gateway_confirmed"] and result["is_real_store"]:
-                result["status"] = "LOJA_CONFIRMADA"
-            elif result["gateway_confirmed"]:
-                result["status"] = "GATEWAY_SIM_LOJA_NAO"
-            elif result["is_real_store"]:
-                result["status"] = "LOJA_SIM_GATEWAY_NAO"
-            else:
-                result["status"] = "NAO_CONFIRMADO"
-
-            log.info(f"ANALYZED | {result['status']} | score={result['store_score']} | gw={'SIM' if result['gateway_confirmed'] else 'NAO'} | {result['domain']} | {result['category']}")
+            status = "CONFIRMED" if gateway_confirmed else "STORE_ONLY"
+            log.info(f"{status} | score={store_score} | niche={niche} | platform={platform} | {url[:80]}")
             return result
 
         except Exception as e:
-            log.error(f"ANALYZE ERROR | {type(e).__name__}: {str(e)[:100]} | url={url[:80]}")
+            log.error(f"ANALYZE ERROR | {url[:80]} | {type(e).__name__}: {str(e)[:100]}")
+            log.error(f"TRACEBACK | {traceback.format_exc()[:300]}")
             return None
 
-    def _confirm_gateway(self, html: str, html_lower: str) -> Tuple[bool, List[str]]:
-        """Confirma presença da gateway no código fonte"""
-        matches = []
+    def _extract_domain(self, url: str) -> str:
+        try:
+            parsed = urllib.parse.urlparse(url)
+            domain = parsed.netloc.lower()
+            if domain.startswith("www."):
+                domain = domain[4:]
+            return domain
+        except:
+            return ""
 
-        # Zona 1: Scripts (src)
-        for m in re.finditer(r'<script[^>]*src=["\']([^"\']+)["\']', html, re.I):
-            src = m.group(1).lower()
-            for sig in self.sigs:
-                if sig in src:
-                    matches.append(f"JS_SRC:{sig}")
-
-        # Zona 2: Iframes
-        for m in re.finditer(r'<iframe[^>]*src=["\']([^"\']+)["\']', html, re.I):
-            src = m.group(1).lower()
-            for sig in self.sigs:
-                if sig in src:
-                    matches.append(f"IFRAME:{sig}")
-
-        # Zona 3: Forms (action)
-        for m in re.finditer(r'<form[^>]*action=["\']([^"\']+)["\']', html, re.I):
-            action = m.group(1).lower()
-            for sig in self.sigs:
-                if sig in action:
-                    matches.append(f"FORM:{sig}")
-
-        # Zona 4: Links (href)
-        for m in re.finditer(r'href=["\']([^"\']*(?:checkout|pay|pagamento)[^"\']*)["\']', html, re.I):
-            href = m.group(1).lower()
-            for sig in self.sigs:
-                if sig in href:
-                    matches.append(f"LINK:{sig}")
-
-        # Zona 5: Inline scripts (variáveis JS)
-        for m in re.finditer(r'<script[^>]*>(.*?)</script>', html, re.I | re.S):
-            content = m.group(1).lower()[:5000]
-            for sig in self.sigs:
-                if sig in content:
-                    matches.append(f"INLINE_JS:{sig}")
-                    break
-
-        # Zona 6: Meta tags e data attributes
-        for m in re.finditer(r'(?:data-|content=)["\']([^"\']+)["\']', html, re.I):
-            val = m.group(1).lower()
-            for sig in self.sigs:
-                if sig in val and len(val) < 500:
-                    matches.append(f"META:{sig}")
-
-        # Zona 7: Texto visível (menos confiável, precisa de mais ocorrências)
-        for sig in self.sigs:
-            count = html_lower.count(sig)
-            if count >= 3:
-                matches.append(f"TEXT({count}x):{sig}")
-
-        unique_matches = list(set(matches))
-        confirmed = len(unique_matches) > 0
-        return confirmed, unique_matches[:10]
-
-    def _detect_platform(self, html_lower: str) -> Tuple[str, List[str]]:
-        platform = "Desconhecida"
-        techs = []
-        for name, patterns in self.ECOMMERCE_PLATFORMS.items():
-            for pat in patterns:
-                if re.search(pat, html_lower):
-                    platform = name
-                    break
-            if platform != "Desconhecida":
-                break
-        # Detectar tecnologias
-        tech_patterns = {
-            "WordPress": r"wp-content|wordpress",
-            "React": r"react|__next",
-            "Vue.js": r"vue\.js|v-bind|v-model",
-            "Angular": r"ng-app|angular",
-            "jQuery": r"jquery",
-            "Bootstrap": r"bootstrap",
-            "Google Tag Manager": r"googletagmanager|gtm\.js",
-            "Google Analytics": r"google-analytics|gtag\(",
-            "Facebook Pixel": r"fbq\(|facebook\.net/en_US/fbevents",
-            "Cloudflare": r"cloudflare|cf-ray",
-        }
-        for tech, pat in tech_patterns.items():
-            if re.search(pat, html_lower):
-                techs.append(tech)
-        return platform, techs
-
-    def _calculate_store_score(self, html_lower: str) -> Tuple[int, List[str]]:
+    def _calculate_store_score(self, html_lower: str) -> int:
+        """Calcular score de loja real (-100 a +100)"""
         score = 0
-        signals = []
-        for pattern, points, name in self.STORE_POSITIVE_SIGNALS:
-            matches = re.findall(pattern, html_lower[:100000])
-            if matches:
-                score += points
-                signals.append(f"+{points}:{name}({len(matches)})")
-        for pattern, points, name in self.STORE_NEGATIVE_SIGNALS:
-            if re.search(pattern, html_lower[:100000]):
-                score += points
-                signals.append(f"{points}:{name}")
-        # Bonus por plataforma e-commerce
-        for name, patterns in self.ECOMMERCE_PLATFORMS.items():
-            for pat in patterns:
-                if re.search(pat, html_lower):
+        details = []
+
+        # ── SINAIS POSITIVOS (loja real) ──
+        positive_signals = [
+            (r'R\$\s*\d+[.,]\d{2}', 6, "PRECO_BRL"),
+            (r'add.?to.?cart|adicionar.?ao.?carrinho|comprar.?agora|buy.?now', 5, "ADD_CART"),
+            (r'carrinho|cart|sacola|bag', 4, "CARRINHO"),
+            (r'checkout|finalizar.?compra|fechar.?pedido', 5, "CHECKOUT"),
+            (r'frete|entrega|envio|shipping|sedex|correios', 4, "FRETE"),
+            (r'cep|calcular.?frete|prazo.?de.?entrega', 3, "CEP_FRETE"),
+            (r'produto|product|item|mercadoria', 3, "PRODUTO"),
+            (r'estoque|disponivel|em.?estoque|in.?stock', 3, "ESTOQUE"),
+            (r'tamanho|size|cor|color|variacao', 3, "VARIACAO"),
+            (r'desconto|cupom|promocao|oferta|sale', 3, "DESCONTO"),
+            (r'parcelamento|parcela|vezes.?sem.?juros|installment', 4, "PARCELAMENTO"),
+            (r'pix|boleto|cartao.?de.?credito|credit.?card', 4, "FORMA_PGTO"),
+            (r'avaliacao|review|estrela|star|nota', 2, "REVIEW"),
+            (r'categoria|department|departamento', 2, "CATEGORIA"),
+            (r'wishlist|lista.?de.?desejos|favorito', 2, "WISHLIST"),
+            (r'minha.?conta|my.?account|login|cadastr', 2, "CONTA"),
+        ]
+
+        for pattern, points, name in positive_signals:
+            matches = len(re.findall(pattern, html_lower))
+            if matches > 0:
+                add = min(points * min(matches, 3), points * 3)
+                score += add
+                details.append(f"+{add} {name}({matches}x)")
+
+        # ── SINAIS DE PLATAFORMA E-COMMERCE ──
+        for platform, keywords in self.ECOMMERCE_PLATFORMS.items():
+            for kw in keywords:
+                if kw in html_lower:
                     score += 5
-                    signals.append(f"+5:platform:{name}")
+                    details.append(f"+5 PLATFORM({platform})")
                     break
-            break
-        return score, signals
 
-    def _classify_category(self, html_lower: str, result: Dict) -> str:
-        if not result["is_real_store"]:
-            return f"Nao e loja (score: {result['store_score']})"
+        # ── SINAIS NEGATIVOS (nao e loja) ──
+        negative_signals = [
+            (r'documentacao|documentation|api.?reference', -15, "DOCS"),
+            (r'tutorial|how.?to|como.?fazer|passo.?a.?passo', -10, "TUTORIAL"),
+            (r'blog.?post|artigo|article|publicado.?em|posted.?on', -10, "BLOG"),
+            (r'changelog|release.?notes|versao|version', -12, "CHANGELOG"),
+            (r'sdk|npm.?install|pip.?install|composer|yarn.?add', -15, "SDK"),
+            (r'endpoint|api.?key|token|webhook|callback', -10, "API"),
+            (r'integra[cç][aã]o|integration|plugin|modulo|module', -8, "INTEGRACAO"),
+            (r'comparativo|versus|vs\.|alternativa|competitor', -8, "COMPARATIVO"),
+            (r'reclama[cç][aã]o|reclamar|denunciar|fraude', -10, "RECLAMACAO"),
+            (r'vagas|careers|trabalhe.?conosco|hiring', -10, "VAGAS"),
+            (r'termos.?de.?uso|privacy.?policy|politica.?de.?privacidade', -2, "LEGAL"),
+        ]
 
-        categories = {
-            "Moda / Roupas": r"roupa|camiseta|vestido|calca|blusa|moda|fashion|jeans|saia|bermuda",
-            "Calcados / Tenis": r"tenis|sapato|sandalia|bota|calcado|sneaker|shoe",
-            "Eletronicos / Tecnologia": r"celular|smartphone|notebook|computador|tablet|fone|eletronico|tech",
-            "Casa / Decoracao": r"decoracao|movel|sofa|cama|mesa|cadeira|cortina|tapete|casa",
-            "Beleza / Cosmeticos": r"perfume|maquiagem|cosmetico|creme|shampoo|beleza|skincare",
-            "Saude / Suplementos": r"suplemento|vitamina|whey|proteina|saude|fitness|natural",
-            "Pet Shop / Animais": r"pet|racao|cachorro|gato|animal|veterinar",
-            "Alimentos / Bebidas": r"alimento|comida|bebida|cafe|vinho|cerveja|gourmet|organico",
-            "Joias / Acessorios": r"joia|anel|colar|brinco|pulseira|relogio|acessorio|bijuteria",
-            "Esportes / Fitness": r"esporte|academia|treino|yoga|corrida|bicicleta|futebol",
-            "Livros / Educacao": r"livro|book|ebook|curso|educacao|apostila|material.didatico",
-            "Brinquedos / Infantil": r"brinquedo|infantil|crianca|bebe|kids|toy",
-            "Automotivo": r"automotivo|carro|moto|peca|acessorio.automotivo|pneu",
-            "Curso / Produto Digital": r"curso.online|infoproduto|mentoria|treinamento|aula",
-            "Servicos / Assinatura": r"assinatura|plano|mensalidade|servico|subscription",
-        }
-        for cat, pattern in categories.items():
-            if re.search(pattern, html_lower[:50000]):
-                return cat
-        return "Loja Online / E-commerce"
+        for pattern, points, name in negative_signals:
+            matches = len(re.findall(pattern, html_lower))
+            if matches > 0:
+                add = max(points * min(matches, 2), points * 2)
+                score += add
+                details.append(f"{add} {name}({matches}x)")
+
+        log.debug(f"SCORE DETAILS | score={score} | {' | '.join(details[:15])}")
+        return score
+
+    def _confirm_gateway(self, html: str, html_lower: str) -> Tuple[bool, str]:
+        """Confirmar presença da gateway no HTML via assinaturas técnicas"""
+        signatures = self.gateway["signatures"]
+        evidence_parts = []
+
+        # Zona 1: Tags <script src="...">
+        for m in re.finditer(r'<script[^>]+src=["\']([^"\']+)["\']', html, re.IGNORECASE):
+            src = m.group(1).lower()
+            for sig in signatures:
+                if sig in src:
+                    evidence_parts.append(f"JS_SRC:{m.group(1)[:80]}")
+
+        # Zona 2: Tags <iframe src="...">
+        for m in re.finditer(r'<iframe[^>]+src=["\']([^"\']+)["\']', html, re.IGNORECASE):
+            src = m.group(1).lower()
+            for sig in signatures:
+                if sig in src:
+                    evidence_parts.append(f"IFRAME:{m.group(1)[:80]}")
+
+        # Zona 3: Tags <form action="...">
+        for m in re.finditer(r'<form[^>]+action=["\']([^"\']+)["\']', html, re.IGNORECASE):
+            action = m.group(1).lower()
+            for sig in signatures:
+                if sig in action:
+                    evidence_parts.append(f"FORM:{m.group(1)[:80]}")
+
+        # Zona 4: Links <a href="...">
+        for m in re.finditer(r'<a[^>]+href=["\']([^"\']+)["\']', html, re.IGNORECASE):
+            href = m.group(1).lower()
+            for sig in signatures:
+                if sig in href:
+                    evidence_parts.append(f"LINK:{m.group(1)[:80]}")
+
+        # Zona 5: Texto inline (menor peso)
+        for sig in signatures:
+            if sig in html_lower:
+                # Verificar se nao e apenas menção textual
+                context_patterns = [
+                    f'pagamento.*{re.escape(sig)}',
+                    f'{re.escape(sig)}.*pagamento',
+                    f'{re.escape(sig)}.*checkout',
+                    f'gateway.*{re.escape(sig)}',
+                ]
+                for cp in context_patterns:
+                    if re.search(cp, html_lower):
+                        evidence_parts.append(f"TEXT_CONTEXT:{sig}")
+                        break
+
+        confirmed = len(evidence_parts) > 0
+        evidence = " | ".join(evidence_parts[:5]) if evidence_parts else ""
+        return confirmed, evidence
+
+    def _detect_platform(self, html_lower: str) -> str:
+        """Detectar plataforma e-commerce"""
+        for platform, keywords in self.ECOMMERCE_PLATFORMS.items():
+            for kw in keywords:
+                if kw in html_lower:
+                    return platform
+        return "Desconhecida"
+
+    def _classify_niche(self, html_lower: str) -> str:
+        """Classificar nicho da loja baseado em keywords"""
+        scores = {}
+        for niche, keywords in self.NICHE_KEYWORDS.items():
+            score = 0
+            for kw in keywords:
+                count = html_lower.count(kw)
+                if count > 0:
+                    score += min(count, 5)
+            if score > 0:
+                scores[niche] = score
+
+        if scores:
+            best = max(scores, key=scores.get)
+            log.debug(f"NICHE SCORES | top={best}({scores[best]}) | all={dict(sorted(scores.items(), key=lambda x: -x[1])[:5])}")
+            return best
+
+        return "Loja Geral / Variedades"
 
     def _extract_title(self, html: str) -> str:
-        m = re.search(r'<title[^>]*>(.*?)</title>', html, re.I | re.S)
-        return m.group(1).strip()[:200] if m else "N/A"
+        m = re.search(r'<title[^>]*>([^<]+)</title>', html, re.IGNORECASE)
+        return m.group(1).strip() if m else ""
 
     def _extract_meta(self, html: str, name: str) -> str:
-        m = re.search(rf'<meta[^>]*name=["\'](?:og:)?{name}["\'][^>]*content=["\']([^"\']+)', html, re.I)
+        m = re.search(rf'<meta[^>]+name=["\']?{name}["\']?[^>]+content=["\']([^"\']+)["\']', html, re.IGNORECASE)
         if not m:
-            m = re.search(rf'<meta[^>]*content=["\']([^"\']+)["\'][^>]*name=["\'](?:og:)?{name}', html, re.I)
-        return m.group(1).strip()[:300] if m else "N/A"
+            m = re.search(rf'<meta[^>]+content=["\']([^"\']+)["\'][^>]+name=["\']?{name}["\']?', html, re.IGNORECASE)
+        return m.group(1).strip() if m else ""
 
     def _extract_emails(self, html: str) -> List[str]:
-        emails = set(re.findall(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', html[:100000]))
-        return [e for e in emails if not e.endswith(('.png', '.jpg', '.gif', '.svg', '.css', '.js'))][:5]
+        emails = set()
+        for m in re.finditer(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', html):
+            email = m.group(0).lower()
+            if not any(x in email for x in ["@example", "@test", "@sentry", "@wixpress", ".png", ".jpg", ".gif"]):
+                emails.add(email)
+        return list(emails)
 
     def _extract_phones(self, html: str) -> List[str]:
         phones = set()
-        for m in re.finditer(r'(?:\+55\s?)?(?:\(?\d{2}\)?\s?)?\d{4,5}[-.\s]?\d{4}', html[:100000]):
-            phone = m.group().strip()
-            if len(re.sub(r'\D', '', phone)) >= 10:
+        for m in re.finditer(r'(?:\+55\s?)?(?:\(?\d{2}\)?\s?)?\d{4,5}[-.\s]?\d{4}', html):
+            phone = re.sub(r'[^\d+]', '', m.group(0))
+            if len(phone) >= 10:
                 phones.add(phone)
-        return list(phones)[:5]
+        return list(phones)
+
 
 # ══════════════════════════════════════════════════════════════════
-#                   REPORT GENERATOR
+#                    REPORT GENERATOR
 # ══════════════════════════════════════════════════════════════════
 
 class ReportGenerator:
-    def __init__(self, output_dir: str):
-        self.output_dir = output_dir
-        os.makedirs(output_dir, exist_ok=True)
+    def __init__(self, gateway_key: str):
+        self.gateway_key = gateway_key
+        self.output_dir = OUTPUT_DIR if os.path.isdir(OUTPUT_DIR) else FALLBACK_OUTPUT
+        os.makedirs(self.output_dir, exist_ok=True)
+        self.timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-    def generate(self, gateway: str, results: List[Dict], stats: Dict, elapsed: float) -> Dict[str, str]:
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        prefix = f"gatehunter_{gateway.lower()}_{ts}"
+    def generate_all(self, results: List[Dict], scan_info: Dict) -> Dict[str, str]:
+        """Gerar todos os relatórios"""
         files = {}
 
-        # Separar lojas confirmadas
-        lojas = [r for r in results if r.get("status") == "LOJA_CONFIRMADA"]
-        gw_only = [r for r in results if r.get("status") == "GATEWAY_SIM_LOJA_NAO"]
-        loja_only = [r for r in results if r.get("status") == "LOJA_SIM_GATEWAY_NAO"]
+        # TXT detalhado
+        txt_path = self._generate_txt(results, scan_info)
+        files["TXT"] = txt_path
 
-        # 1. Relatório TXT completo
-        txt_path = os.path.join(self.output_dir, f"{prefix}.txt")
-        with open(txt_path, "w", encoding="utf-8") as f:
-            f.write(f"{'='*70}\n")
-            f.write(f"  GATEHUNTER v{VERSION} - RELATORIO COMPLETO\n")
-            f.write(f"{'='*70}\n\n")
-            f.write(f"Gateway        : {gateway}\n")
-            f.write(f"Data           : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-            f.write(f"Tempo total    : {elapsed:.1f}s\n")
-            f.write(f"URLs analisadas: {len(results)}\n")
-            f.write(f"Lojas confirm. : {len(lojas)}\n")
-            f.write(f"Gateway s/ loja: {len(gw_only)}\n")
-            f.write(f"Loja s/ gateway: {len(loja_only)}\n")
-            f.write(f"Requests total : {stats.get('requests', 0)}\n")
-            f.write(f"Bloqueios      : {stats.get('blocked', 0)}\n\n")
+        # JSON
+        json_path = self._generate_json(results, scan_info)
+        files["JSON"] = json_path
 
-            if lojas:
-                f.write(f"\n{'='*70}\n")
-                f.write(f"  LOJAS CONFIRMADAS (Gateway + E-commerce)\n")
-                f.write(f"{'='*70}\n\n")
-                for i, r in enumerate(lojas, 1):
-                    f.write(f"  [{i:3d}] {r['url']}\n")
-                    f.write(f"        Titulo    : {r['title'][:80]}\n")
-                    f.write(f"        Categoria : {r['category']}\n")
-                    f.write(f"        Plataforma: {r['platform']}\n")
-                    f.write(f"        Score     : {r['store_score']}\n")
-                    f.write(f"        Gateway   : {', '.join(r['gateway_matches'][:3])}\n")
-                    if r['emails']:
-                        f.write(f"        Emails    : {', '.join(r['emails'])}\n")
-                    if r['phones']:
-                        f.write(f"        Telefones : {', '.join(r['phones'])}\n")
-                    f.write(f"\n")
+        # URLs limpas (todas)
+        urls_path = self._generate_urls(results)
+        files["URLS"] = urls_path
 
-            if gw_only:
-                f.write(f"\n{'='*70}\n")
-                f.write(f"  SITES COM GATEWAY (nao confirmados como loja)\n")
-                f.write(f"{'='*70}\n\n")
-                for i, r in enumerate(gw_only, 1):
-                    f.write(f"  [{i:3d}] {r['url']}\n")
-                    f.write(f"        Titulo    : {r['title'][:80]}\n")
-                    f.write(f"        Score     : {r['store_score']}\n")
-                    f.write(f"        Gateway   : {', '.join(r['gateway_matches'][:3])}\n\n")
+        # LOJAS confirmadas
+        lojas_path = self._generate_lojas(results)
+        files["LOJAS"] = lojas_path
 
-            if loja_only:
-                f.write(f"\n{'='*70}\n")
-                f.write(f"  LOJAS SEM GATEWAY CONFIRMADA\n")
-                f.write(f"{'='*70}\n\n")
-                for i, r in enumerate(loja_only, 1):
-                    f.write(f"  [{i:3d}] {r['url']}\n")
-                    f.write(f"        Titulo    : {r['title'][:80]}\n")
-                    f.write(f"        Categoria : {r['category']}\n")
-                    f.write(f"        Score     : {r['store_score']}\n\n")
-
-        files["txt"] = txt_path
-        log.info(f"REPORT TXT | {txt_path} | {os.path.getsize(txt_path)} bytes")
-
-        # 2. JSON completo
-        json_path = os.path.join(self.output_dir, f"{prefix}.json")
-        with open(json_path, "w", encoding="utf-8") as f:
-            json.dump({
-                "version": VERSION,
-                "gateway": gateway,
-                "timestamp": datetime.now().isoformat(),
-                "elapsed_seconds": elapsed,
-                "stats": stats,
-                "total_results": len(results),
-                "stores_found": len(lojas),
-                "results": results,
-            }, f, ensure_ascii=False, indent=2)
-        files["json"] = json_path
-        log.info(f"REPORT JSON | {json_path} | {os.path.getsize(json_path)} bytes")
-
-        # 3. Lista de todas as URLs
-        urls_path = os.path.join(self.output_dir, f"{prefix}_all_urls.txt")
-        with open(urls_path, "w") as f:
-            for r in results:
-                f.write(f"{r['url']}\n")
-        files["urls"] = urls_path
-
-        # 4. Lista de LOJAS confirmadas
-        lojas_path = os.path.join(self.output_dir, f"{prefix}_LOJAS.txt")
-        with open(lojas_path, "w", encoding="utf-8") as f:
-            f.write(f"# LOJAS CONFIRMADAS - {gateway} - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-            f.write(f"# Total: {len(lojas)} lojas\n\n")
-            for r in lojas:
-                f.write(f"{r['url']} | {r['category']} | {r['platform']} | Score:{r['store_score']}\n")
-        files["lojas"] = lojas_path
-        log.info(f"REPORT LOJAS | {lojas_path} | {len(lojas)} lojas")
+        for fmt, path in files.items():
+            size = os.path.getsize(path) if os.path.isfile(path) else 0
+            log.info(f"REPORT | {fmt} | {path} | {size:,} bytes")
 
         return files
+
+    def _generate_txt(self, results: List[Dict], scan_info: Dict) -> str:
+        path = os.path.join(self.output_dir, f"gatehunter_{self.gateway_key.lower()}_{self.timestamp}.txt")
+        confirmed = [r for r in results if r.get("gateway_confirmed")]
+        stores = [r for r in results if not r.get("gateway_confirmed")]
+
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("=" * 70 + "\n")
+            f.write(f"  GATEHUNTER v{VERSION} - RELATORIO DETALHADO\n")
+            f.write(f"  Gateway: {self.gateway_key}\n")
+            f.write(f"  Data: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n")
+            f.write(f"  Nicho: {scan_info.get('niche', 'Todos')}\n")
+            f.write("=" * 70 + "\n\n")
+
+            # Resumo
+            f.write(f"  URLs coletadas: {scan_info.get('total_urls', 0)}\n")
+            f.write(f"  Sites analisados: {scan_info.get('analyzed', 0)}\n")
+            f.write(f"  Gateway confirmada: {len(confirmed)}\n")
+            f.write(f"  Lojas sem gateway: {len(stores)}\n")
+            f.write(f"  Tempo total: {scan_info.get('elapsed', '0')}s\n")
+            f.write(f"  Engines: Brave + DDG + Bing\n\n")
+
+            # Sites com gateway confirmada
+            if confirmed:
+                f.write("=" * 70 + "\n")
+                f.write("  SITES COM GATEWAY CONFIRMADA\n")
+                f.write("=" * 70 + "\n\n")
+                for i, r in enumerate(confirmed, 1):
+                    f.write(f"  [{i}] {r['url']}\n")
+                    f.write(f"      Titulo: {r.get('title', 'N/A')[:80]}\n")
+                    f.write(f"      Nicho: {r.get('niche', 'N/A')}\n")
+                    f.write(f"      Plataforma: {r.get('platform', 'N/A')}\n")
+                    f.write(f"      Score: {r.get('store_score', 0)}\n")
+                    f.write(f"      Evidencia: {r.get('gateway_evidence', 'N/A')[:80]}\n")
+                    if r.get("emails"):
+                        f.write(f"      Emails: {', '.join(r['emails'])}\n")
+                    if r.get("phones"):
+                        f.write(f"      Telefones: {', '.join(r['phones'])}\n")
+                    f.write(f"      Descricao: {r.get('description', 'N/A')[:120]}\n")
+                    f.write("\n")
+
+            # Lojas sem gateway confirmada mas com score alto
+            if stores:
+                f.write("=" * 70 + "\n")
+                f.write("  LOJAS SEM GATEWAY CONFIRMADA (score alto)\n")
+                f.write("=" * 70 + "\n\n")
+                for i, r in enumerate(stores, 1):
+                    f.write(f"  [{i}] {r['url']}\n")
+                    f.write(f"      Titulo: {r.get('title', 'N/A')[:80]}\n")
+                    f.write(f"      Nicho: {r.get('niche', 'N/A')}\n")
+                    f.write(f"      Score: {r.get('store_score', 0)}\n")
+                    f.write("\n")
+
+            # Categorias
+            niches = {}
+            for r in results:
+                n = r.get("niche", "Outros")
+                niches[n] = niches.get(n, 0) + 1
+            if niches:
+                f.write("=" * 70 + "\n")
+                f.write("  CATEGORIAS ENCONTRADAS\n")
+                f.write("=" * 70 + "\n\n")
+                for n, c in sorted(niches.items(), key=lambda x: -x[1]):
+                    bar = "█" * min(c * 2, 40)
+                    f.write(f"  {n:35s} {c:3d} {bar}\n")
+                f.write("\n")
+
+        return path
+
+    def _generate_json(self, results: List[Dict], scan_info: Dict) -> str:
+        path = os.path.join(self.output_dir, f"gatehunter_{self.gateway_key.lower()}_{self.timestamp}.json")
+        data = {
+            "version": VERSION,
+            "gateway": self.gateway_key,
+            "niche": scan_info.get("niche", "Todos"),
+            "timestamp": datetime.now().isoformat(),
+            "scan_info": scan_info,
+            "results": results,
+            "total": len(results),
+            "confirmed": len([r for r in results if r.get("gateway_confirmed")]),
+        }
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        return path
+
+    def _generate_urls(self, results: List[Dict]) -> str:
+        path = os.path.join(self.output_dir, f"gatehunter_{self.gateway_key.lower()}_{self.timestamp}_all_urls.txt")
+        with open(path, "w", encoding="utf-8") as f:
+            for r in results:
+                f.write(r["url"] + "\n")
+        return path
+
+    def _generate_lojas(self, results: List[Dict]) -> str:
+        path = os.path.join(self.output_dir, f"gatehunter_{self.gateway_key.lower()}_{self.timestamp}_LOJAS.txt")
+        confirmed = [r for r in results if r.get("gateway_confirmed")]
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(f"# LOJAS COM GATEWAY {self.gateway_key.upper()} CONFIRMADA\n")
+            f.write(f"# Gerado: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n")
+            f.write(f"# Total: {len(confirmed)} lojas\n\n")
+            for r in confirmed:
+                f.write(f"{r['url']} | {r.get('niche', 'N/A')} | {r.get('platform', 'N/A')} | Score: {r.get('store_score', 0)}\n")
+        return path
+
 
 # ══════════════════════════════════════════════════════════════════
 #                    GATEHUNTER MAIN CLASS
@@ -1268,279 +1387,302 @@ class ReportGenerator:
 
 class GateHunter:
     def __init__(self):
+        log.start_session()
+        log.info("GateHunter initialized")
         self.proxy = ProxyRotator()
         self.requester = SmartRequester(self.proxy)
-        self.dork_engine = DorkEngine(self.requester)
-        self.url_filter = URLFilter()
-        self.output_dir = OUTPUT_DIR if os.path.isdir(OUTPUT_DIR) else FALLBACK_OUTPUT
-        os.makedirs(self.output_dir, exist_ok=True)
-        self.report = ReportGenerator(self.output_dir)
-        log.info(f"GateHunter initialized | output={self.output_dir} | proxies={len(self.proxy.proxies)}")
 
-    def show_banner(self):
+    def _print_banner(self):
+        os.system("clear 2>/dev/null || cls 2>/dev/null")
         banner = f"""
 {R}╔══════════════════════════════════════════════════════════════╗{RST}
-{R}║{RST}  {C}  ██████   █████  ████████ ███████{RST}                          {R}║{RST}
-{R}║{RST}  {C} ██       ██   ██    ██    ██     {RST}                          {R}║{RST}
-{R}║{RST}  {C} ██   ███ ███████    ██    █████  {RST}                          {R}║{RST}
-{R}║{RST}  {C} ██    ██ ██   ██    ██    ██     {RST}                          {R}║{RST}
-{R}║{RST}  {C}  ██████  ██   ██    ██    ███████{RST}                          {R}║{RST}
-{R}║{RST}  {Y} ██   ██ ██    ██ ███    ██ ████████ ███████ ██████  {RST}       {R}║{RST}
-{R}║{RST}  {Y} ██   ██ ██    ██ ████   ██    ██    ██      ██   ██ {RST}       {R}║{RST}
-{R}║{RST}  {Y} ███████ ██    ██ ██ ██  ██    ██    █████   ██████  {RST}       {R}║{RST}
-{R}║{RST}  {Y} ██   ██ ██    ██ ██  ██ ██    ██    ██      ██   ██ {RST}       {R}║{RST}
-{R}║{RST}  {Y} ██   ██  ██████  ██   ████    ██    ███████ ██   ██ {RST}       {R}║{RST}
-{R}║{RST}                                                              {R}║{RST}
-{R}║{RST}  {W}v{VERSION}{RST} // {G}NETHUNTER SUPREME EDITION{RST} // {M}Payment Gateway OSINT{RST} {R}║{RST}
-{R}╠══════════════════════════════════════════════════════════════╣{RST}
-{R}║{RST} {C}Engine{RST}  : curl_cffi Impersonate + Multi-Thread + Proxy Pool  {R}║{RST}
-{R}║{RST} {C}Evasion{RST} : TLS Fingerprint + Header Spoof + UA Rotation      {R}║{RST}
-{R}║{RST} {C}Search{RST}  : DDG HTML + Google.com.br + Bing (Multi-Engine)     {R}║{RST}
-{R}║{RST} {C}Filter{RST}  : 3-Layer Validation + Store Score + Blacklist       {R}║{RST}
-{R}║{RST} {C}Output{RST}  : {self.output_dir}/ (TXT + JSON + URLs)  {R}║{RST}
-{R}║{RST} {C}Logs{RST}    : {log.log_path or 'N/A'}  {R}║{RST}
+{R}║{RST}  {BOLD}{R}  ██████{Y}  █████  {C}████████{G} ███████{RST}                               {R}║{RST}
+{R}║{RST}  {BOLD}{R} ██      {Y}██   ██    {C}██   {G} ██{RST}                                    {R}║{RST}
+{R}║{RST}  {BOLD}{R} ██   ███{Y}███████    {C}██   {G} █████{RST}                                 {R}║{RST}
+{R}║{RST}  {BOLD}{R} ██    ██{Y}██   ██    {C}██   {G} ██{RST}                                    {R}║{RST}
+{R}║{RST}  {BOLD}{R}  ██████ {Y}██   ██    {C}██   {G} ███████{RST}                               {R}║{RST}
+{R}║{RST}  {BOLD}{B} ██   ██{M}██    ██{C}███   ██{G}████████{Y}███████{R}██████{RST}              {R}║{RST}
+{R}║{RST}  {BOLD}{B} ██   ██{M}██    ██{C}████  ██{G}   ██   {Y}██     {R}██   ██{RST}             {R}║{RST}
+{R}║{RST}  {BOLD}{B} ███████{M}██    ██{C}██ ██ ██{G}   ██   {Y}█████  {R}██████{RST}              {R}║{RST}
+{R}║{RST}  {BOLD}{B} ██   ██{M}██    ██{C}██  ████{G}   ██   {Y}██     {R}██   ██{RST}             {R}║{RST}
+{R}║{RST}  {BOLD}{B} ██   ██{M} ██████ {C}██   ███{G}   ██   {Y}███████{R}██   ██{RST}             {R}║{RST}
 {R}╚══════════════════════════════════════════════════════════════╝{RST}
+
+  {D}v{VERSION} // NETHUNTER SUPREME EDITION // Payment Gateway OSINT{RST}
+
+  {M}┌──────────────────────────────────────────────────────────┐{RST}
+  {M}│{RST} {W}Engine  : Brave + DDG + Bing + Google CSE (Multi-Engine){RST} {M}│{RST}
+  {M}│{RST} {W}Evasion : curl_cffi Impersonate + Proxy Pool + UA Spoof{RST} {M}│{RST}
+  {M}│{RST} {W}Filter  : 3-Layer Validation + Store Score + Niche{RST}      {M}│{RST}
+  {M}│{RST} {W}Output  : {OUTPUT_DIR}{RST}                     {M}│{RST}
+  {M}└──────────────────────────────────────────────────────────┘{RST}
 """
         print(banner)
 
-    def show_config(self):
-        print(f"\n{M}┌─────────────────────────────────────────┐{RST}")
-        print(f"{M}│{RST}  {W}CONFIGURACAO ATIVA{RST}                       {M}│{RST}")
-        print(f"{M}├─────────────────────────────────────────┤{RST}")
-        print(f"{M}│{RST}  {C}Proxies Carregadas{RST}  :  {G}{len(self.proxy.proxies)}{RST}               {M}│{RST}")
-        print(f"{M}│{RST}  {C}Threads{RST}             :  {G}{MAX_THREADS}{RST}              {M}│{RST}")
-        print(f"{M}│{RST}  {C}Timeout{RST}             :  {G}{REQUEST_TIMEOUT}s{RST}             {M}│{RST}")
-        print(f"{M}│{RST}  {C}curl_cffi{RST}           :  {G if CFFI_OK else R}{'OK' if CFFI_OK else 'N/A'}{RST}              {M}│{RST}")
-        cse = f"{G}OK{RST}" if GOOGLE_CSE_API_KEY else f"{Y}N/A{RST}"
-        print(f"{M}│{RST}  {C}Google CSE API{RST}      :  {cse}             {M}│{RST}")
-        engines = "DDG + Google + Bing"
+        # Config ativa
+        print(f"  {D}┌{'─'*40}┐{RST}")
+        print(f"  {D}│{RST} {W}CONFIGURACAO ATIVA{RST}{' '*22}{D}│{RST}")
+        print(f"  {D}├{'─'*40}┤{RST}")
+        print(f"  {D}│{RST} {C}Proxies{RST}    : {G}{len(self.proxy.proxies)}{RST}{' '*(27-len(str(len(self.proxy.proxies))))}{D}│{RST}")
+        print(f"  {D}│{RST} {C}Threads{RST}    : {G}{MAX_THREADS}{RST}{' '*(27-len(str(MAX_THREADS)))}{D}│{RST}")
+        print(f"  {D}│{RST} {C}Timeout{RST}    : {G}{REQUEST_TIMEOUT}s{RST}{' '*(26-len(str(REQUEST_TIMEOUT)))}{D}│{RST}")
+        cffi_str = f"{G}OK{RST}" if CFFI_OK else f"{R}NO{RST}"
+        print(f"  {D}│{RST} {C}curl_cffi{RST}  : {cffi_str}{' '*(27-2)}{D}│{RST}")
+        engines = "Brave + DDG + Bing"
         if GOOGLE_CSE_API_KEY:
             engines += " + CSE"
-        print(f"{M}│{RST}  {C}Engines{RST}             :  {G}{engines}{RST}  {M}│{RST}")
-        print(f"{M}│{RST}  {C}Busca via{RST}           :  {G}IP Direto (sem proxy){RST}  {M}│{RST}")
-        print(f"{M}│{RST}  {C}Analise via{RST}         :  {G}Proxy Pool{RST}            {M}│{RST}")
-        print(f"{M}└─────────────────────────────────────────┘{RST}")
+        print(f"  {D}│{RST} {C}Engines{RST}    : {G}{engines}{RST}{' '*(27-len(engines))}{D}│{RST}")
+        log_path = os.path.join(OUTPUT_DIR if os.path.isdir(OUTPUT_DIR) else FALLBACK_OUTPUT, LOG_FILE)
+        print(f"  {D}│{RST} {C}Debug Log{RST}  : {Y}Ativo{RST}{' '*(22)}{D}│{RST}")
+        print(f"  {D}└{'─'*40}┘{RST}")
+        print()
 
-    def show_menu(self):
-        print(f"\n{M}┌─────────────────────────────────────────────────────────────┐{RST}")
-        print(f"{M}│{RST}  {W}SELECIONE A GATEWAY DE PAGAMENTO{RST}                            {M}│{RST}")
-        print(f"{M}├─────────────────────────────────────────────────────────────┤{RST}")
-        gw_list = list(GATEWAYS.keys())
-        for i, gw in enumerate(gw_list, 1):
-            desc = GATEWAYS[gw]["desc"]
-            print(f"{M}│{RST}  {G}[{i:2d}]{RST}  {W}{gw:15s}{RST} {D}{desc}{RST}")
-        print(f"{M}├─────────────────────────────────────────────────────────────┤{RST}")
-        print(f"{M}│{RST}  {Y}[ 0]{RST}  {W}CUSTOM{RST} - Inserir gateway personalizada                 {M}│{RST}")
-        print(f"{M}│{RST}  {R}[99]{RST}  {W}SAIR{RST}                                                   {M}│{RST}")
-        print(f"{M}└─────────────────────────────────────────────────────────────┘{RST}")
-        return gw_list
+    def _show_gateway_menu(self) -> Optional[str]:
+        """Menu de seleção de gateway"""
+        print(f"  {M}┌{'─'*55}┐{RST}")
+        print(f"  {M}│{RST} {BOLD}{W}SELECIONE A GATEWAY DE PAGAMENTO{RST}{' '*22}{M}│{RST}")
+        print(f"  {M}├{'─'*55}┤{RST}")
 
-    def get_custom_gateway(self) -> Optional[Dict]:
-        print(f"\n{C}[*] Gateway Personalizada{RST}")
-        name = input(f"{G}Nome da gateway: {RST}").strip()
-        if not name:
+        keys = list(GATEWAYS.keys())
+        for i, key in enumerate(keys, 1):
+            gw = GATEWAYS[key]
+            name = f"{key:15s}"
+            desc = gw["desc"][:38]
+            print(f"  {M}│{RST} [{G}{i:2d}{RST}] {C}{name}{RST} {desc}{' '*(38-len(desc))}{M}│{RST}")
+
+        print(f"  {M}├{'─'*55}┤{RST}")
+        print(f"  {M}│{RST} [{Y} 0{RST}] {Y}CUSTOM{RST} - Inserir gateway personalizada{' '*13}{M}│{RST}")
+        print(f"  {M}│{RST} [{R}99{RST}] {R}SAIR{RST}{' '*49}{M}│{RST}")
+        print(f"  {M}└{'─'*55}┘{RST}")
+        print()
+
+        choice = input(f"  {G}GateHunter{RST} > ").strip()
+
+        if choice == "99":
             return None
-        sigs_raw = input(f"{G}Assinaturas (separadas por virgula): {RST}").strip()
-        sigs = [s.strip() for s in sigs_raw.split(",") if s.strip()]
-        if not sigs:
-            print(f"{R}[!] Necessario pelo menos uma assinatura{RST}")
+        elif choice == "0":
+            custom = input(f"  {Y}Nome da gateway:{RST} ").strip()
+            if custom:
+                sigs = input(f"  {Y}Assinaturas (separadas por virgula):{RST} ").strip()
+                dorks_input = input(f"  {Y}Dorks (separadas por ;):{RST} ").strip()
+                GATEWAYS[custom] = {
+                    "desc": f"{custom} - Gateway personalizada",
+                    "signatures": [s.strip() for s in sigs.split(",")],
+                    "dorks": [d.strip() for d in dorks_input.split(";")] if dorks_input else [f'"{custom}" loja comprar', f'"{custom}" pagamento loja online'],
+                }
+                return custom
             return None
-        dorks_raw = input(f"{G}Dorks (separadas por | ou Enter para auto): {RST}").strip()
-        if dorks_raw:
-            dorks = [d.strip() for d in dorks_raw.split("|") if d.strip()]
         else:
-            dorks = [
-                f'"{sigs[0]}" comprar loja online',
-                f'"{sigs[0]}" checkout pagamento',
-                f'"{sigs[0]}" ecommerce produto',
-                f'"{sigs[0]}" "finalizar compra"',
-                f'"{sigs[0]}" carrinho loja virtual',
-            ]
-        return {"name": name, "desc": f"{name} - Gateway personalizada", "signatures": sigs, "dorks": dorks}
+            try:
+                idx = int(choice) - 1
+                if 0 <= idx < len(keys):
+                    return keys[idx]
+            except ValueError:
+                pass
+            print(f"  {R}[!] Opcao invalida{RST}")
+            return None
 
-    def _execute_scan(self, gateway_name: str, gateway_data: Dict):
-        """Executa o scan completo para uma gateway"""
+    def _show_niche_menu(self) -> Tuple[str, List[str]]:
+        """Menu de seleção de nicho"""
+        print()
+        print(f"  {M}┌{'─'*55}┐{RST}")
+        print(f"  {M}│{RST} {BOLD}{W}FILTRAR POR NICHO (opcional){RST}{' '*27}{M}│{RST}")
+        print(f"  {M}├{'─'*55}┤{RST}")
+
+        niche_keys = list(NICHOS.keys())
+        for i, key in enumerate(niche_keys):
+            niche = NICHOS[key]
+            name = f"{key:30s}"
+            desc = niche["desc"][:22]
+            print(f"  {M}│{RST} [{G}{i:2d}{RST}] {C}{name}{RST} {desc}{' '*(22-len(desc))}{M}│{RST}")
+
+        print(f"  {M}└{'─'*55}┘{RST}")
+        print()
+
+        choice = input(f"  {G}Nicho{RST} > ").strip()
+
+        try:
+            idx = int(choice)
+            if 0 <= idx < len(niche_keys):
+                key = niche_keys[idx]
+                return key, NICHOS[key]["terms"]
+        except ValueError:
+            pass
+
+        return "Todos", []
+
+    def _execute_scan(self, gateway_key: str, niche_name: str, niche_terms: List[str]):
+        """Executar scan completo"""
+        gateway = GATEWAYS[gateway_key]
         start_time = time.time()
-        dorks = gateway_data["dorks"]
-        sigs = gateway_data["signatures"]
 
-        log.info("=" * 60)
-        log.info(f"SCAN START | gateway={gateway_name} | dorks={len(dorks)} | sigs={len(sigs)} | proxies={len(self.proxy.proxies)}")
-        for i, d in enumerate(dorks):
-            log.info(f"  DORK[{i}] = {d}")
-        log.info("=" * 60)
+        print()
+        print(f"  {M}{'='*60}{RST}")
+        print(f"  {BOLD}{C}INICIANDO SCAN: {gateway_key}{RST}")
+        if niche_name != "Todos":
+            print(f"  {BOLD}{Y}NICHO: {niche_name}{RST}")
+        print(f"  {M}{'='*60}{RST}")
+        print()
 
-        print(f"\n{'='*60}")
-        print(f"  {G}INICIANDO SCAN: {W}{gateway_name}{RST}")
-        print(f"{'='*60}\n")
-        print(f"  {C}Gateway{RST}     : {gateway_name}")
-        print(f"  {C}Dorks{RST}       : {len(dorks)}")
-        print(f"  {C}Assinaturas{RST} : {', '.join(sigs[:4])}")
-        print(f"  {C}Proxies{RST}     : {len(self.proxy.proxies)}")
-        print(f"  {C}Threads{RST}     : {MAX_THREADS}")
+        log.info(f"SCAN START | gateway={gateway_key} | niche={niche_name} | dorks={len(gateway['dorks'])}")
+
+        ts = datetime.now().strftime("%H:%M:%S")
+        print(f"  {D}{ts}{RST} [{C}*{RST}] Gateway: {G}{gateway_key}{RST}")
+        print(f"  {D}{ts}{RST} [{C}*{RST}] Dorks base: {G}{len(gateway['dorks'])}{RST}")
+        print(f"  {D}{ts}{RST} [{C}*{RST}] Nicho: {Y}{niche_name}{RST}")
+        print(f"  {D}{ts}{RST} [{C}*{RST}] Assinaturas: {Y}{', '.join(gateway['signatures'])}{RST}")
+        print(f"  {D}{ts}{RST} [{C}*{RST}] Proxies: {G}{len(self.proxy.proxies)}{RST}")
+        print(f"  {D}{ts}{RST} [{C}*{RST}] Threads: {G}{MAX_THREADS}{RST}")
         print()
 
         # ── FASE 1: Coletar URLs via Dorks ──
         ts = datetime.now().strftime("%H:%M:%S")
-        print(f"{ts} {B}[-]{RST} FASE 1/3: Coletando URLs via Dorks (Multi-Engine)...")
-        log.info("PHASE | 1/3 | Coletando URLs via Dorks (Multi-Engine)")
+        print(f"  {D}{ts}{RST} [{C}-{RST}] {BOLD}FASE 1/3: Coletando URLs via Dorks (Multi-Engine)...{RST}")
+        log.info("PHASE 1 START | Collecting URLs")
 
-        raw_urls = set()
-        for i, dork in enumerate(dorks):
-            ts = datetime.now().strftime("%H:%M:%S")
-            print(f"{ts} {B}[-]{RST} Dork [{i+1}/{len(dorks)}]: {dork[:60]}...")
-            log.info(f"PHASE | DORK {i+1}/{len(dorks)} | {dork[:80]}")
-
-            dork_urls = self.dork_engine.search_all(dork)
-            new_urls = dork_urls - raw_urls
-            raw_urls.update(dork_urls)
-
-            ts = datetime.now().strftime("%H:%M:%S")
-            print(f"{ts} {G}[+]{RST}   -> {len(new_urls)} URLs novas encontradas")
-
-            if i < len(dorks) - 1:
-                time.sleep(random.uniform(SEARCH_DELAY_MIN, SEARCH_DELAY_MAX))
-
-        # ── Filtrar URLs ──
-        valid_urls = []
-        for url in raw_urls:
-            is_valid, reason = self.url_filter.is_valid(url)
-            if is_valid:
-                valid_urls.append(url)
-
-        # Deduplicar por domínio
-        unique_urls = self.url_filter.deduplicate_by_domain(set(valid_urls))
+        dork_engine = DorkEngine(self.requester)
+        valid_urls = dork_engine.collect_urls(gateway["dorks"], niche_terms)
 
         ts = datetime.now().strftime("%H:%M:%S")
-        log.info(f"DORK SUMMARY | raw={len(raw_urls)} | filtered={len(valid_urls)} | unique_domains={len(unique_urls)}")
-        print(f"\n{ts} {G}[+]{RST} Total URLs brutas: {len(raw_urls)}")
-        print(f"{ts} {G}[+]{RST} Após filtro: {len(valid_urls)}")
-        print(f"{ts} {G}[+]{RST} Domínios únicos: {len(unique_urls)}")
+        print(f"\n  {D}{ts}{RST} [{G}+{RST}] Total URLs unicas: {G}{len(valid_urls)}{RST}")
+        log.info(f"PHASE 1 DONE | valid_urls={len(valid_urls)}")
 
-        if not unique_urls:
-            print(f"\n{R}[!] Nenhuma URL encontrada após filtragem{RST}")
-            print(f"{Y}[*] Tente uma gateway diferente ou dorks customizadas{RST}")
-            log.warning("No URLs found after filtering")
-            elapsed = time.time() - start_time
-            self.report.generate(gateway_name, [], self.requester.stats, elapsed)
+        if not valid_urls:
+            print(f"\n  {R}[!] Nenhuma URL encontrada. Tente outra gateway ou nicho.{RST}")
+            log.warning("NO URLS FOUND")
             return
 
         # ── FASE 2: Analisar Sites ──
         ts = datetime.now().strftime("%H:%M:%S")
-        print(f"\n{ts} {B}[-]{RST} FASE 2/3: Analisando {len(unique_urls)} sites ({MAX_THREADS} threads)...")
-        log.info(f"PHASE | 2/3 | Analisando {len(unique_urls)} sites ({MAX_THREADS} threads)")
+        print(f"\n  {D}{ts}{RST} [{C}-{RST}] {BOLD}FASE 2/3: Analisando {len(valid_urls)} sites ({MAX_THREADS} threads)...{RST}")
+        log.info(f"PHASE 2 START | Analyzing {len(valid_urls)} sites")
 
-        analyzer = SiteAnalyzer(self.requester, sigs)
+        analyzer = SiteAnalyzer(self.requester, gateway_key)
         results = []
-        confirmed_count = 0
+        errors = 0
 
-        with ThreadPoolExecutor(max_workers=MAX_THREADS) as pool:
-            futures = {pool.submit(analyzer.analyze, url): url for url in unique_urls}
-            for future in as_completed(futures):
-                url = futures[future]
+        with ThreadPoolExecutor(max_workers=MAX_THREADS) as executor:
+            future_map = {executor.submit(analyzer.analyze, url): url for url in valid_urls}
+            for i, future in enumerate(as_completed(future_map), 1):
+                url = future_map[future]
                 try:
                     result = future.result()
                     if result:
                         results.append(result)
-                        status_color = G if result["status"] == "LOJA_CONFIRMADA" else (Y if "SIM" in result["status"] else D)
+                        status = f"{G}CONFIRMED{RST}" if result.get("gateway_confirmed") else f"{Y}STORE{RST}"
+                        niche_str = result.get("niche", "N/A")[:30]
                         ts = datetime.now().strftime("%H:%M:%S")
-                        confirmed_count += 1
-                        print(f"{ts} {status_color}[{confirmed_count}/{len(unique_urls)}]{RST} {result['status']} {result['domain']} | {result['category']}")
+                        print(f"  {D}{ts}{RST} [{i}/{len(valid_urls)}] {status} {C}{result['domain'][:40]}{RST} | {niche_str}")
+                    else:
+                        ts = datetime.now().strftime("%H:%M:%S")
+                        domain = urllib.parse.urlparse(url).netloc[:40]
+                        print(f"  {D}{ts}{RST} [{i}/{len(valid_urls)}] {R}REJECTED{RST} {D}{domain}{RST}")
                 except Exception as e:
-                    log.error(f"Future error: {e}")
+                    errors += 1
+                    log.error(f"THREAD ERROR | {url[:80]} | {str(e)[:80]}")
+
+        log.info(f"PHASE 2 DONE | results={len(results)} | errors={errors}")
 
         # ── FASE 3: Gerar Relatórios ──
         ts = datetime.now().strftime("%H:%M:%S")
-        print(f"\n{ts} {B}[-]{RST} FASE 3/3: Gerando relatórios...")
-        log.info("PHASE | 3/3 | Gerando relatórios")
+        print(f"\n  {D}{ts}{RST} [{C}-{RST}] {BOLD}FASE 3/3: Gerando relatorios...{RST}")
+        log.info("PHASE 3 START | Generating reports")
 
-        elapsed = time.time() - start_time
-        files = self.report.generate(gateway_name, results, self.requester.stats, elapsed)
+        elapsed = round(time.time() - start_time, 1)
+        scan_info = {
+            "gateway": gateway_key,
+            "niche": niche_name,
+            "total_urls": len(valid_urls),
+            "analyzed": len(valid_urls),
+            "confirmed": len([r for r in results if r.get("gateway_confirmed")]),
+            "stores_only": len([r for r in results if not r.get("gateway_confirmed")]),
+            "errors": errors,
+            "elapsed": elapsed,
+            "requests_total": self.requester.stats["requests"],
+            "blocked": self.requester.stats["blocked"],
+        }
 
-        # ── Resumo Final ──
-        lojas = [r for r in results if r.get("status") == "LOJA_CONFIRMADA"]
-        gw_only = [r for r in results if r.get("status") == "GATEWAY_SIM_LOJA_NAO"]
+        report = ReportGenerator(gateway_key)
+        files = report.generate_all(results, scan_info)
 
-        print(f"\n{'='*60}")
-        print(f"  {G}SCAN COMPLETO!{RST}")
-        print(f"{'='*60}")
-        print(f"  {C}Gateway{RST}         : {G}{gateway_name}{RST}")
-        print(f"  {C}Tempo total{RST}     : {G}{elapsed:.1f}s{RST}")
-        print(f"  {C}URLs analisadas{RST} : {W}{len(results)}{RST}")
-        print(f"  {C}Lojas confirm.{RST} : {G}{len(lojas)}{RST}")
-        print(f"  {C}Gateway s/loja{RST} : {Y}{len(gw_only)}{RST}")
-        print(f"  {C}Requests total{RST} : {W}{self.requester.stats['requests']}{RST}")
-        print(f"  {C}Bloqueios{RST}      : {R}{self.requester.stats['blocked']}{RST}")
+        # ── RESUMO FINAL ──
+        confirmed = [r for r in results if r.get("gateway_confirmed")]
+        stores = [r for r in results if not r.get("gateway_confirmed")]
 
-        print(f"\n  {W}Arquivos gerados:{RST}")
-        for key, path in files.items():
-            size = os.path.getsize(path) if os.path.exists(path) else 0
-            print(f"  {G}[-]{RST}   {key.upper():10s} = {path} ({size:,} bytes)")
+        print()
+        print(f"  {M}{'='*60}{RST}")
+        print(f"  {BOLD}{G}SCAN COMPLETO!{RST}")
+        print(f"  {M}{'='*60}{RST}")
+        print()
+        print(f"  {W}Gateway{RST}          : {C}{gateway_key}{RST}")
+        print(f"  {W}Nicho{RST}            : {Y}{niche_name}{RST}")
+        print(f"  {W}Tempo total{RST}      : {C}{elapsed}s{RST}")
+        print(f"  {W}URLs coletadas{RST}   : {C}{len(valid_urls)}{RST}")
+        print(f"  {W}Confirmadas{RST}      : {G}{len(confirmed)}{RST}")
+        print(f"  {W}Lojas (score){RST}    : {Y}{len(stores)}{RST}")
+        print(f"  {W}Errors{RST}           : {R}{errors}{RST}")
+        print(f"  {W}Requests total{RST}   : {C}{self.requester.stats['requests']}{RST}")
+        print(f"  {W}Bloqueios{RST}        : {R}{self.requester.stats['blocked']}{RST}")
+        print()
 
-        if lojas:
-            print(f"\n  {G}TOP LOJAS CONFIRMADAS:{RST}")
-            for i, r in enumerate(lojas[:15], 1):
-                print(f"  {G}{i:3d}. {W}{r['domain']:35s}{RST} | {C}{r['category']}{RST}")
+        print(f"  {W}Arquivos gerados:{RST}")
+        for fmt, path in files.items():
+            size = os.path.getsize(path) if os.path.isfile(path) else 0
+            print(f"  [{C}-{RST}] {fmt:10s} = {Y}{path}{RST} ({size:,} bytes)")
+        print()
+
+        # Top sites confirmados
+        if confirmed:
+            print(f"  {G}TOP SITES CONFIRMADOS:{RST}")
+            print(f"  {'─'*55}")
+            for i, r in enumerate(confirmed[:15], 1):
+                niche_str = r.get("niche", "N/A")[:25]
+                print(f"  {i:2d}. {C}{r['domain'][:35]}{RST} | {niche_str}")
+            print()
 
         # Categorias
-        cats = {}
+        niches = {}
         for r in results:
-            cat = r.get("category", "N/A")
-            cats[cat] = cats.get(cat, 0) + 1
-        if cats:
-            print(f"\n  {M}CATEGORIAS:{RST}")
-            for cat, count in sorted(cats.items(), key=lambda x: -x[1])[:8]:
-                bar = "█" * min(count, 30)
-                print(f"  {W}{cat:35s}{RST} {G}{count:3d}{RST} {C}{bar}{RST}")
+            n = r.get("niche", "Outros")
+            niches[n] = niches.get(n, 0) + 1
+        if niches:
+            print(f"  {Y}CATEGORIAS:{RST}")
+            for n, c in sorted(niches.items(), key=lambda x: -x[1]):
+                bar = f"{G}{'█' * min(c * 2, 30)}{RST}"
+                print(f"  {n:35s} {c:3d} {bar}")
+            print()
 
-        print(f"\n{'='*60}")
-        log.info(f"SCAN COMPLETE | gateway={gateway_name} | elapsed={elapsed:.1f}s | results={len(results)} | lojas={len(lojas)}")
+        log.info(f"SCAN COMPLETE | gateway={gateway_key} | confirmed={len(confirmed)} | stores={len(stores)} | elapsed={elapsed}s")
+        log.info(f"LOG FILE | {os.path.join(OUTPUT_DIR if os.path.isdir(OUTPUT_DIR) else FALLBACK_OUTPUT, LOG_FILE)}")
 
     def run(self):
-        """Loop principal do menu"""
-        log.start_session()
-        self.show_banner()
-        self.show_config()
-
+        """Loop principal"""
         while True:
-            gw_list = self.show_menu()
-            try:
-                choice = input(f"\n{G}GateHunter > {RST}").strip()
-                if choice == "99":
-                    print(f"\n{M}[*] Ate a proxima! GateHunter out.{RST}\n")
-                    break
-                elif choice == "0":
-                    custom = self.get_custom_gateway()
-                    if custom:
-                        self._execute_scan(custom["name"], custom)
-                elif choice.isdigit() and 1 <= int(choice) <= len(gw_list):
-                    gw_name = gw_list[int(choice) - 1]
-                    self._execute_scan(gw_name, GATEWAYS[gw_name])
-                else:
-                    print(f"{R}[!] Opcao invalida{RST}")
-            except KeyboardInterrupt:
-                print(f"\n{Y}[!] Ctrl+C detectado. Voltando ao menu...{RST}")
-            except Exception as e:
-                print(f"{R}[!] Erro: {e}{RST}")
-                log.error(f"Menu error: {traceback.format_exc()}")
+            self._print_banner()
+            gateway_key = self._show_gateway_menu()
 
-            # Reset stats para próximo scan
-            self.requester.stats = {"requests": 0, "success": 0, "failed": 0, "blocked": 0}
-            input(f"\n{D}Pressione Enter para voltar ao menu...{RST}")
+            if gateway_key is None:
+                print(f"\n  {Y}Ate a proxima! GateHunter v{VERSION}{RST}\n")
+                break
+
+            niche_name, niche_terms = self._show_niche_menu()
+
+            self._execute_scan(gateway_key, niche_name, niche_terms)
+
+            print(f"  {M}{'='*60}{RST}")
+            input(f"  {D}Pressione Enter para voltar ao menu...{RST} ")
+
 
 # ══════════════════════════════════════════════════════════════════
-#                          MAIN
+#                         MAIN
 # ══════════════════════════════════════════════════════════════════
 
-def main():
+if __name__ == "__main__":
     try:
         hunter = GateHunter()
         hunter.run()
     except KeyboardInterrupt:
-        print(f"\n{M}[*] Encerrado pelo usuario.{RST}")
+        print(f"\n\n  {Y}[!] Interrompido pelo usuario.{RST}\n")
     except Exception as e:
-        print(f"\n{R}[!] Erro fatal: {e}{RST}")
-        log.error(f"FATAL: {traceback.format_exc()}")
-
-if __name__ == "__main__":
-    main()
+        print(f"\n  {R}[FATAL] {e}{RST}")
+        log.error(f"FATAL | {traceback.format_exc()}")
