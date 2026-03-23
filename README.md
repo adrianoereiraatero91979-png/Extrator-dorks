@@ -1,4 +1,4 @@
-# GateHunter v3.0 - NetHunter Supreme Edition
+# GateHunter v4.0 - NetHunter Supreme Edition
 
 ```
    ██████╗  █████╗ ████████╗███████╗
@@ -23,16 +23,55 @@
 
 | Recurso | Descrição |
 |---------|-----------|
-| **Multi-Engine Search** | DuckDuckGo + Google + Bing com dorks inteligentes |
+| **Multi-Engine Search** | DuckDuckGo + Google + Bing com dorks focadas em assinaturas JS |
 | **curl_cffi Impersonate** | TLS Fingerprint idêntico a Chrome/Safari/Edge real |
 | **Proxy Rotativa** | Pool de proxies com rotação automática e failover |
-| **Filtro Anti-Lixo** | Blacklist de 66+ domínios + padrões informativos |
-| **Store Validator** | Score de validação para identificar lojas REAIS |
+| **Validação 3 Camadas** | URL Filter + Gateway Confirm + Store Validator |
+| **Blacklist Massiva** | 200+ domínios bloqueados (blogs, docs, suporte, etc) |
 | **15+ Gateways** | Asaas, PagarMe, eRede, Stripe, Cielo, MercadoPago... |
-| **Classificação IA** | 18 categorias de nicho (roupas, eletrônicos, etc) |
-| **Detecção de Plataforma** | WooCommerce, Shopify, VTEX, Nuvemshop, Tray... |
-| **Debug Logging** | Log completo de tudo em `/sdcard/nh_files/` |
-| **Relatórios Ultra Detalhados** | TXT + JSON + URLs + Stores Only |
+| **Store Score** | Score inteligente com sinais positivos e negativos |
+| **Classificação** | 18 categorias de nicho (roupas, eletrônicos, etc) |
+| **Detecção Plataforma** | WooCommerce, Shopify, VTEX, Nuvemshop, Tray... |
+| **Debug Logging** | Log completo em `/sdcard/nh_files/logs_gate_hunter.txt` |
+| **Relatórios** | TXT + JSON + LOJAS + All URLs |
+
+---
+
+## Validação em 3 Camadas (v4.0)
+
+### Camada 1: URL Filter
+- Blacklist de 200+ domínios (YouTube, GitHub, Medium, blogs de gateways, etc)
+- Filtro de subdomínios informativos (docs., blog., help., support., api., etc)
+- Bloqueio de padrões de URL ruins (/blog/, /docs/, /faq/, /tutorial/, etc)
+- Domínios da própria gateway são bloqueados automaticamente
+
+### Camada 2: Gateway Confirmation
+- Busca assinaturas JS em zonas técnicas: `<script src>`, `<iframe src>`, `<form action>`, `<link href>`, `data-*`
+- NÃO confirma por texto livre (evita falsos positivos de artigos que mencionam a gateway)
+- Fallback: text_signatures com threshold de 3+ ocorrências
+
+### Camada 3: Store Validator
+Score baseado em sinais encontrados no HTML:
+
+| Sinal | Peso | Exemplos |
+|-------|------|----------|
+| Preços (R$) | +5 | `R$ 89,90`, `data-price`, `class="price"` |
+| Botão compra | +5 | "adicionar ao carrinho", "comprar agora" |
+| Carrinho | +4 | "carrinho", "sacola", "cart" |
+| Plataforma | +4 | WooCommerce, Shopify, VTEX detectados |
+| Produtos | +3 | "produto", "catálogo", "categoria" |
+| Frete | +3 | "frete", "CEP", "Correios", "Sedex" |
+| Pagamento | +3 | "cartão de crédito", "boleto", "pix" |
+| Variações | +2 | "tamanho", "cor", "quantidade" |
+| Avaliações | +2 | "avaliação", "estrelas", "review" |
+| Documentação | -15 | "API reference", "npm install", "SDK" |
+| Blog/Artigo | -10 | "publicado em", "leia mais", "tags:" |
+| Tutorial | -8 | "como configurar", "passo a passo" |
+| Suporte | -8 | "base de conhecimento", "FAQ" |
+| Comparativo | -8 | "melhor gateway", "prós e contras" |
+| Fórum | -10 | "responder tópico", "membro desde" |
+
+**Threshold: >= 8 pontos** para ser classificado como loja real.
 
 ---
 
@@ -61,7 +100,7 @@
 
 ## Instalação no Kali NetHunter
 
-### Método 1: Git Clone (Recomendado)
+### Primeira vez
 
 ```bash
 cd /root
@@ -72,7 +111,7 @@ chmod +x install.sh gatehunter.py
 python3 gatehunter.py
 ```
 
-### Método 2: Atualização
+### Atualização
 
 ```bash
 cd /root/gatehunter
@@ -86,16 +125,11 @@ python3 gatehunter.py
 
 O script `install.sh` instala tudo automaticamente:
 
-```
-pip3 install curl_cffi rich fake-useragent beautifulsoup4
-```
-
 | Pacote | Função |
 |--------|--------|
 | `curl_cffi` | TLS Fingerprint Impersonate (Chrome/Safari/Edge) |
-| `rich` | Interface colorida no terminal |
 | `fake-useragent` | Geração de User-Agents realistas |
-| `beautifulsoup4` | Parser HTML auxiliar |
+| `beautifulsoup4` | Parser HTML auxiliar (opcional) |
 
 ---
 
@@ -105,11 +139,6 @@ Edite o arquivo `proxies.txt` com suas proxies no formato:
 
 ```
 IP:PORTA:USUARIO:SENHA
-```
-
-Exemplo:
-```
-45.95.96.10:8831:user123:pass456
 ```
 
 ---
@@ -122,52 +151,36 @@ Todos os relatórios são salvos em `/sdcard/nh_files/`:
 |---------|----------|
 | `gatehunter_GATEWAY_TIMESTAMP.txt` | Relatório completo ultra detalhado |
 | `gatehunter_GATEWAY_TIMESTAMP.json` | Dados estruturados em JSON |
-| `gatehunter_GATEWAY_urls_TIMESTAMP.txt` | Lista de todas as URLs |
-| `gatehunter_GATEWAY_confirmed_TIMESTAMP.txt` | Apenas URLs confirmadas |
-| `gatehunter_GATEWAY_stores_TIMESTAMP.txt` | Apenas LOJAS REAIS |
-| `gatehunter_debug.log` | Log de debug completo |
+| `gatehunter_GATEWAY_TIMESTAMP_LOJAS.txt` | Apenas LOJAS REAIS confirmadas |
+| `gatehunter_GATEWAY_TIMESTAMP_all_urls.txt` | Todas as URLs analisadas |
+| `logs_gate_hunter.txt` | Debug log completo |
 
 ---
 
-## Como Funciona
+## Changelog
 
-### Fase 1: Coleta via Dorks
-O script usa dorks inteligentes em 3 engines (DDG, Google, Bing) para encontrar sites que usam a gateway selecionada. As dorks são focadas em encontrar **lojas reais** e não documentação/blogs.
+### v4.0 (2026-03-23)
+- Dorks profissionais focadas em assinaturas JS técnicas
+- Validação em 3 camadas (URL Filter + Gateway Confirm + Store Validator)
+- Blacklist massiva de 200+ domínios
+- Detecção de gateway via zonas técnicas (script src, iframe, form)
+- Store Score com sinais positivos e negativos
+- Debug logging completo em `/sdcard/nh_files/logs_gate_hunter.txt`
+- Dedup por domínio
 
-### Fase 2: Análise Profunda
-Cada URL é analisada com multi-threading (15 threads). O script:
-1. Filtra domínios da própria gateway (anti-lixo)
-2. Verifica presença da gateway no HTML (scripts, iframes, links)
-3. Calcula **Store Score** para validar se é loja real
-4. Classifica o nicho da loja (18 categorias)
-5. Detecta plataforma e-commerce
-6. Extrai contatos (emails, telefones)
+### v3.0
+- Filtro anti-lixo com blacklist
+- Store Validator básico
 
-### Fase 3: Relatórios
-Gera 5 arquivos de relatório com diferentes níveis de detalhe.
-
----
-
-## Store Validator
-
-O sistema de validação usa um score baseado em sinais encontrados no HTML:
-
-| Tipo | Peso | Exemplos |
-|------|------|----------|
-| HIGH | +3 | "adicionar ao carrinho", "comprar agora", "checkout" |
-| MEDIUM | +2 | "R$", "preço", "frete", "estoque" |
-| PLATFORM | +4 | "woocommerce", "shopify", "vtex" |
-| PAYMENT | +2 | "cartão de crédito", "boleto", "pix" |
-| NEGATIVE | -2 | "documentação", "tutorial", "blog post" |
-
-**Threshold padrão: 8 pontos** para ser classificado como loja real.
+### v2.0
+- Versão inicial com curl_cffi e multi-engine
 
 ---
 
 ## Aviso Legal
 
-Esta ferramenta é destinada **exclusivamente para fins educacionais e de pesquisa autorizada**. O uso desta ferramenta para atividades ilegais ou não autorizadas é estritamente proibido. O autor não se responsabiliza pelo uso indevido.
+Esta ferramenta é destinada **exclusivamente para fins educacionais e de pesquisa autorizada**. O uso desta ferramenta para atividades ilegais ou não autorizadas é estritamente proibido.
 
 ---
 
-**GateHunter v3.0** - NetHunter Supreme Edition
+**GateHunter v4.0** - NetHunter Supreme Edition

@@ -1,6 +1,6 @@
 #!/bin/bash
 # ══════════════════════════════════════════════════════════════════
-#  GATEHUNTER v3.0 - INSTALADOR NETHUNTER SUPREME EDITION
+#  GATEHUNTER v4.0 - INSTALADOR NETHUNTER SUPREME EDITION
 # ══════════════════════════════════════════════════════════════════
 
 RED='\033[1;31m'
@@ -14,14 +14,13 @@ RESET='\033[0m'
 
 echo ""
 echo -e "${MAGENTA}══════════════════════════════════════════════════════════════${RESET}"
-echo -e "${CYAN}  GATEHUNTER v3.0 - INSTALADOR NETHUNTER SUPREME EDITION${RESET}"
+echo -e "${CYAN}  GATEHUNTER v4.0 - INSTALADOR NETHUNTER SUPREME EDITION${RESET}"
 echo -e "${MAGENTA}══════════════════════════════════════════════════════════════${RESET}"
 echo ""
 
 # Verificar se está rodando como root
 if [ "$EUID" -ne 0 ]; then
     echo -e "${YELLOW}[!] Recomendado rodar como root para instalar dependencias${RESET}"
-    echo -e "${YELLOW}[!] Tentando sem root...${RESET}"
     PIP_CMD="pip3 install --user"
 else
     PIP_CMD="pip3 install"
@@ -37,8 +36,6 @@ echo -e "${CYAN}[*] Instalando dependencias Python...${RESET}"
 PACKAGES=(
     "curl_cffi"
     "fake-useragent"
-    "rich"
-    "requests"
     "beautifulsoup4"
 )
 
@@ -71,18 +68,36 @@ fi
 # Tornar executável
 chmod +x gatehunter.py 2>/dev/null
 
+# Verificar instalação
+echo ""
+echo -e "${CYAN}[*] Verificando instalacao...${RESET}"
+python3 -c "
+try:
+    from curl_cffi import requests
+    print('  [+] curl_cffi: OK')
+except:
+    print('  [!] curl_cffi: FALHA')
+try:
+    from fake_useragent import UserAgent
+    print('  [+] fake_useragent: OK')
+except:
+    print('  [!] fake_useragent: FALHA (nao critico)')
+import sys
+print(f'  [+] Python: {sys.version.split()[0]}')
+"
+
 echo ""
 echo -e "${GREEN}══════════════════════════════════════════════════════════════${RESET}"
-echo -e "${GREEN}  INSTALACAO CONCLUIDA! GateHunter v3.0${RESET}"
+echo -e "${GREEN}  INSTALACAO CONCLUIDA! GateHunter v4.0${RESET}"
 echo -e "${GREEN}══════════════════════════════════════════════════════════════${RESET}"
 echo ""
-echo -e "${WHITE}  Novidades v3.0:${RESET}"
-echo -e "${CYAN}    [+] Filtro Anti-Lixo (blacklist 66+ dominios)${RESET}"
-echo -e "${CYAN}    [+] Store Validator (detecta lojas REAIS)${RESET}"
-echo -e "${CYAN}    [+] Dorks inteligentes (focadas em e-commerce)${RESET}"
-echo -e "${CYAN}    [+] Debug Logging completo${RESET}"
-echo -e "${CYAN}    [+] Dedup por dominio${RESET}"
-echo -e "${CYAN}    [+] Relatorio exclusivo de lojas reais${RESET}"
+echo -e "${WHITE}  Novidades v4.0:${RESET}"
+echo -e "${CYAN}    [+] Validacao em 3 Camadas (URL + Gateway + Store)${RESET}"
+echo -e "${CYAN}    [+] Blacklist massiva (200+ dominios)${RESET}"
+echo -e "${CYAN}    [+] Dorks focadas em assinaturas JS tecnicas${RESET}"
+echo -e "${CYAN}    [+] Store Score com sinais positivos e negativos${RESET}"
+echo -e "${CYAN}    [+] Debug Log completo em /sdcard/nh_files/logs_gate_hunter.txt${RESET}"
+echo -e "${CYAN}    [+] Deteccao de gateway via zonas tecnicas${RESET}"
 echo ""
 echo -e "${WHITE}  Para executar:${RESET}"
 echo -e "${CYAN}    python3 gatehunter.py${RESET}"
